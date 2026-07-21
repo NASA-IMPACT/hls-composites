@@ -1,4 +1,5 @@
 from datetime import date
+from datetime import date as date_type
 
 import numpy as np
 import pytest
@@ -7,12 +8,16 @@ from hls_composites.composite import (
     DEFAULT_BANDS,
     QA_BIT,
     asset_url,
+    band_std,
+    composite_band,
     compute_all_nan_mask,
     compute_bad_pixel_mask,
     compute_basic_mask,
     compute_evi2,
     compute_negative_mask,
+    relative_doy,
     select_best_index,
+    valid_count,
 )
 from hls_composites.models import Granule
 
@@ -155,3 +160,57 @@ def test_select_best_index_all_masked_pixel_falls_back_to_zero():
     all_nan_mask = np.ones((1, 1), dtype=bool)
     idx = select_best_index(evi2, bad_pixel_mask, all_nan_mask)
     assert idx[0, 0] == 0
+
+
+def test_composite_band_picks_value_at_chosen_index():
+    values = np.array([[[10]], [[20]], [[30]]], dtype=np.int16)
+    best_idx = np.array([[1]], dtype=np.int16)
+    all_nan_mask = np.zeros((1, 1), dtype=bool)
+    result = composite_band(values, best_idx, all_nan_mask, nodata=-9999)
+    assert result[0, 0] == 20
+
+
+def test_composite_band_all_masked_pixel_gets_nodata():
+    values = np.array([[[10]], [[20]]], dtype=np.int16)
+    best_idx = np.array([[0]], dtype=np.int16)
+    all_nan_mask = np.ones((1, 1), dtype=bool)
+    result = composite_band(values, best_idx, all_nan_mask, nodata=-9999)
+    assert result[0, 0] == -9999
+
+
+def test_band_std_computed_over_unmasked_observations_only():
+    values = np.array([[[10]], [[20]], [[999]]], dtype=np.float32)
+    bad_pixel_mask = np.array([[[False]], [[False]], [[True]]])  # last one excluded
+    all_nan_mask = np.zeros((1, 1), dtype=bool)
+    result = band_std(values, bad_pixel_mask, all_nan_mask)
+    assert result[0, 0] == pytest.approx(np.std([10, 20]), rel=1e-5)
+
+
+def test_band_std_all_masked_pixel_is_zero():
+    values = np.array([[[10]], [[20]]], dtype=np.float32)
+    bad_pixel_mask = np.ones((2, 1, 1), dtype=bool)
+    all_nan_mask = np.ones((1, 1), dtype=bool)
+    result = band_std(values, bad_pixel_mask, all_nan_mask)
+    assert result[0, 0] == 0
+
+
+def test_valid_count_counts_unmasked_observations():
+    bad_pixel_mask = np.array([[[True]], [[False]], [[False]]])
+    result = valid_count(bad_pixel_mask)
+    assert result[0, 0] == 2
+
+
+def test_relative_doy_uses_chosen_observations_date():
+    dates = [date_type(2020, 1, 1), date_type(2020, 1, 10), date_type(2020, 1, 20)]
+    best_idx = np.array([[1]], dtype=np.int16)  # Jan 10
+    all_nan_mask = np.zeros((1, 1), dtype=bool)
+    result = relative_doy(dates, best_idx, all_nan_mask, start_date=date_type(2020, 1, 1))
+    assert result[0, 0] == 10  # Jan 10 is DOY 10, start is DOY 1: 10 - 1 + 1 = 10
+
+
+def test_relative_doy_all_masked_pixel_is_zero():
+    dates = [date_type(2020, 1, 1), date_type(2020, 1, 10)]
+    best_idx = np.array([[0]], dtype=np.int16)
+    all_nan_mask = np.ones((1, 1), dtype=bool)
+    result = relative_doy(dates, best_idx, all_nan_mask, start_date=date_type(2020, 1, 1))
+    assert result[0, 0] == 0

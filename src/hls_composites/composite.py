@@ -1,5 +1,7 @@
 """Composite creation: masking, median-EVI2 selection, aggregation."""
 
+from datetime import date
+
 import numpy as np
 
 from hls_composites.models import Granule
@@ -99,3 +101,35 @@ def select_best_index(
     idx = np.argmin(diff, axis=0).astype(np.int16)
     idx[all_nan_mask] = 0
     return idx
+
+
+def composite_band(
+    values: np.ndarray, best_idx: np.ndarray, all_nan_mask: np.ndarray, nodata: int
+) -> np.ndarray:
+    chosen = np.take_along_axis(values, best_idx[None, :, :], axis=0)[0]
+    return np.where(all_nan_mask, nodata, chosen)
+
+
+def band_std(
+    values: np.ndarray, bad_pixel_mask: np.ndarray, all_nan_mask: np.ndarray
+) -> np.ndarray:
+    values_f = values.astype(np.float32).copy()
+    values_f[bad_pixel_mask] = np.nan
+    with np.errstate(all="ignore"):
+        std = np.nanstd(values_f, axis=0)
+    std[all_nan_mask] = 0
+    return std
+
+
+def valid_count(bad_pixel_mask: np.ndarray) -> np.ndarray:
+    return np.sum(~bad_pixel_mask, axis=0).astype(np.uint8)
+
+
+def relative_doy(
+    dates: list[date], best_idx: np.ndarray, all_nan_mask: np.ndarray, start_date: date
+) -> np.ndarray:
+    doy_vals = np.array([d.timetuple().tm_yday for d in dates], dtype=np.int32)
+    start_doy = start_date.timetuple().tm_yday
+    chosen_doy = doy_vals[best_idx]
+    rel = chosen_doy - start_doy + 1
+    return np.where(all_nan_mask, 0, rel).astype(np.uint8)
