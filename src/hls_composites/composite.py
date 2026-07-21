@@ -164,9 +164,13 @@ def read_band_with_retry(
 def build_composite(
     granules: list[Granule],
     start_date: date,
-    bands: list[str] = DEFAULT_BANDS,
+    bands: list[str] | None = None,
     opener=_default_opener,
 ) -> xr.Dataset:
+    if not granules:
+        raise ValueError("build_composite requires at least one granule")
+    if bands is None:
+        bands = DEFAULT_BANDS
     reflectance_bands = [b for b in bands if b != "Fmask"]
 
     raw: dict[str, np.ndarray] = {}

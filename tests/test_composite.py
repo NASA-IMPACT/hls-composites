@@ -325,3 +325,8 @@ def test_build_composite_end_to_end_with_synthetic_reader():
         assert f"{band}_std" in result.data_vars
     assert "Fmask_std" not in result.data_vars
     assert "DOY" in result.data_vars
+
+
+def test_build_composite_raises_on_empty_granule_list():
+    with pytest.raises(ValueError, match="at least one granule"):
+        build_composite([], start_date=date(2020, 1, 1))
