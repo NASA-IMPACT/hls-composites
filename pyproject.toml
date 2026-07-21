@@ -7,10 +7,22 @@ authors = [
     { name = "Chris Holden", email = "ceholden@gmail.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "boto3>=1.35.0",
+    "dask>=2025.10.0",
+    "numpy>=2.1.0",
+    "rasterio>=1.4.3",
+    "rioxarray>=0.17.0",
+    "xarray>=2025.1.0",
+]
 
 [project.scripts]
 hls-composites = "hls_composites:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.9.10,<0.10.0"]
