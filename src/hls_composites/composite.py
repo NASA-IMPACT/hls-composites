@@ -1,5 +1,7 @@
 """Composite creation: masking, median-EVI2 selection, aggregation."""
 
+import numpy as np
+
 from hls_composites.models import Granule
 
 DEFAULT_BANDS = ["red", "green", "blue", "nir_narrow", "swir_1", "swir_2", "Fmask"]
@@ -44,3 +46,56 @@ QA_FILL = 255
 def asset_url(granule: Granule, band: str) -> str:
     band_code = BAND_CODE[granule.satellite][band]
     return f"{granule.path}.{band_code}.tif"
+
+
+_NEGATIVE_CHECK_BANDS = ("red", "nir_narrow", "blue", "green", "swir_1", "swir_2")
+
+
+def compute_negative_mask(bands: dict[str, np.ndarray]) -> np.ndarray:
+    mask = np.zeros_like(bands["red"], dtype=bool)
+    for band in _NEGATIVE_CHECK_BANDS:
+        mask |= bands[band] < 0
+    return mask
+
+
+def compute_basic_mask(bands: dict[str, np.ndarray], fmask: np.ndarray) -> np.ndarray:
+    cloud = (fmask & (1 << QA_BIT["cloud"])) > 0
+    adj_cloud = (fmask & (1 << QA_BIT["adj_cloud"])) > 0
+    cloud_shadow = (fmask & (1 << QA_BIT["cloud_shadow"])) > 0
+    fill = fmask == QA_FILL
+    negative = compute_negative_mask(bands)
+    return cloud | adj_cloud | cloud_shadow | fill | negative
+
+
+def compute_bad_pixel_mask(bands: dict[str, np.ndarray], fmask: np.ndarray) -> np.ndarray:
+    basic = compute_basic_mask(bands, fmask)
+    is_high_aerosol = ((fmask & (1 << QA_BIT["aerosol_high"])) > 0) & (
+        (fmask & (1 << QA_BIT["aerosol_low"])) > 0
+    )
+    is_low_mod_aerosol = ~is_high_aerosol & ~basic
+    any_low_mod_available = np.any(is_low_mod_aerosol, axis=0)
+    return basic | (is_high_aerosol & any_low_mod_available)
+
+
+def compute_all_nan_mask(bad_pixel_mask: np.ndarray) -> np.ndarray:
+    return np.all(bad_pixel_mask, axis=0)
+
+
+def compute_evi2(red: np.ndarray, nir: np.ndarray) -> np.ndarray:
+    red_r = red.astype(np.float32) * SR_SCALE
+    nir_r = nir.astype(np.float32) * SR_SCALE
+    return 2.5 * (nir_r - red_r) / (nir_r + 2.4 * red_r + 1)
+
+
+def select_best_index(
+    evi2: np.ndarray, bad_pixel_mask: np.ndarray, all_nan_mask: np.ndarray
+) -> np.ndarray:
+    evi2_masked = evi2.copy()
+    evi2_masked[bad_pixel_mask] = np.nan
+    with np.errstate(all="ignore"):
+        target = np.nanmedian(evi2_masked, axis=0)
+        diff = np.abs(evi2_masked - target)
+    diff[np.isnan(diff)] = 1e9
+    idx = np.argmin(diff, axis=0).astype(np.int16)
+    idx[all_nan_mask] = 0
+    return idx
