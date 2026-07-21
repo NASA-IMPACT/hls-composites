@@ -7,8 +7,11 @@ import pytest
 from hls_composites.composite import (
     DEFAULT_BANDS,
     QA_BIT,
+    QA_FILL,
+    SR_FILL,
     asset_url,
     band_std,
+    build_composite,
     composite_band,
     compute_all_nan_mask,
     compute_bad_pixel_mask,
@@ -255,3 +258,70 @@ def test_read_band_with_retry_raises_after_exhausting_retries(monkeypatch):
         assert False, "expected IOError"
     except IOError as e:
         assert "permanent failure" in str(e)
+
+
+def test_build_composite_end_to_end_with_synthetic_reader():
+    # 2x2 pixel tile, 2 timesteps, one satellite (L30). Pixel (0,0) is clear at
+    # both timesteps; pixel (0,1) is cloudy at timestep 0 (must fall back to
+    # timestep 1); pixel (1,0) is cloudy at both timesteps (must fall back to
+    # nodata everywhere).
+    granules = [
+        Granule(path="s3://bucket/g0", satellite="L30", date=date(2020, 1, 5)),
+        Granule(path="s3://bucket/g1", satellite="L30", date=date(2020, 1, 15)),
+    ]
+
+    # Fixed reflectance for every band except we vary red/nir_narrow slightly
+    # per timestep so EVI2 differs and the selection is exercised.
+    clear_value = 1000
+    fmask_clear = 0
+    fmask_cloud = 1 << QA_BIT["cloud"]
+
+    band_data = {
+        "s3://bucket/g0.B04.tif": np.array([[1000, 1000], [1000, 1000]], dtype=np.int16),  # red
+        "s3://bucket/g0.B03.tif": np.full((2, 2), clear_value, dtype=np.int16),  # green
+        "s3://bucket/g0.B02.tif": np.full((2, 2), clear_value, dtype=np.int16),  # blue
+        "s3://bucket/g0.B05.tif": np.array([[3000, 3000], [3000, 3000]], dtype=np.int16),  # nir_narrow
+        "s3://bucket/g0.B06.tif": np.full((2, 2), clear_value, dtype=np.int16),  # swir_1
+        "s3://bucket/g0.B07.tif": np.full((2, 2), clear_value, dtype=np.int16),  # swir_2
+        "s3://bucket/g0.Fmask.tif": np.array(
+            [[fmask_clear, fmask_cloud], [fmask_cloud, fmask_cloud]], dtype=np.uint8
+        ),
+        "s3://bucket/g1.B04.tif": np.array([[1100, 1100], [1100, 1100]], dtype=np.int16),
+        "s3://bucket/g1.B03.tif": np.full((2, 2), clear_value, dtype=np.int16),
+        "s3://bucket/g1.B02.tif": np.full((2, 2), clear_value, dtype=np.int16),
+        "s3://bucket/g1.B05.tif": np.array([[3200, 3200], [3200, 3200]], dtype=np.int16),
+        "s3://bucket/g1.B06.tif": np.full((2, 2), clear_value, dtype=np.int16),
+        "s3://bucket/g1.B07.tif": np.full((2, 2), clear_value, dtype=np.int16),
+        "s3://bucket/g1.Fmask.tif": np.array(
+            [[fmask_clear, fmask_clear], [fmask_cloud, fmask_cloud]], dtype=np.uint8
+        ),
+    }
+
+    def fake_opener(url: str) -> np.ndarray:
+        return band_data[url]
+
+    result = build_composite(
+        granules,
+        start_date=date(2020, 1, 1),
+        bands=["red", "green", "blue", "nir_narrow", "swir_1", "swir_2", "Fmask"],
+        opener=fake_opener,
+    )
+
+    # Pixel (1,0): cloudy at every timestep -> nodata everywhere.
+    assert result["red"].values[1, 0] == SR_FILL
+    assert result["Fmask"].values[1, 0] == QA_FILL
+    assert result["ValidCount"].values[1, 0] == 0
+
+    # Pixel (0,1): only timestep 1 is clear -> composite must come from g1.
+    assert result["red"].values[0, 1] == 1100
+    assert result["ValidCount"].values[0, 1] == 1
+
+    # Pixel (0,0): both timesteps clear -> ValidCount is 2, and DOY/red come
+    # from whichever timestep the median-EVI2 selection picked.
+    assert result["ValidCount"].values[0, 0] == 2
+    assert result["red"].values[0, 0] in (1000, 1100)
+
+    for band in ("red", "green", "blue", "nir_narrow", "swir_1", "swir_2"):
+        assert f"{band}_std" in result.data_vars
+    assert "Fmask_std" not in result.data_vars
+    assert "DOY" in result.data_vars

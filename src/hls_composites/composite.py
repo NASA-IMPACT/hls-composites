@@ -5,6 +5,7 @@ from datetime import date
 
 import numpy as np
 import rasterio as rio
+import xarray as xr
 
 from hls_composites.models import Granule
 
@@ -158,3 +159,43 @@ def read_band_with_retry(
                 time.sleep(delay)
     assert last_error is not None
     raise last_error
+
+
+def build_composite(
+    granules: list[Granule],
+    start_date: date,
+    bands: list[str] = DEFAULT_BANDS,
+    opener=_default_opener,
+) -> xr.Dataset:
+    reflectance_bands = [b for b in bands if b != "Fmask"]
+
+    raw: dict[str, np.ndarray] = {}
+    for band in bands:
+        urls = [asset_url(g, band) for g in granules]
+        raw[band] = np.stack(
+            [read_band_with_retry(u, opener=opener) for u in urls], axis=0
+        )
+
+    fmask = raw["Fmask"]
+    reflectance_arrays = {b: raw[b] for b in reflectance_bands}
+
+    bad_pixel_mask = compute_bad_pixel_mask(reflectance_arrays, fmask)
+    all_nan_mask = compute_all_nan_mask(bad_pixel_mask)
+    evi2 = compute_evi2(raw["red"], raw["nir_narrow"])
+    best_idx = select_best_index(evi2, bad_pixel_mask, all_nan_mask)
+
+    data_vars: dict[str, tuple] = {}
+    for band in bands:
+        nodata = QA_FILL if band == "Fmask" else SR_FILL
+        dtype = np.uint8 if band == "Fmask" else np.int16
+        composite = composite_band(raw[band], best_idx, all_nan_mask, nodata).astype(dtype)
+        data_vars[band] = (("y", "x"), composite)
+        if band != "Fmask":
+            std = band_std(raw[band], bad_pixel_mask, all_nan_mask)
+            data_vars[f"{band}_std"] = (("y", "x"), np.round(std).astype(np.int16))
+
+    data_vars["ValidCount"] = (("y", "x"), valid_count(bad_pixel_mask))
+    dates = [g.date for g in granules]
+    data_vars["DOY"] = (("y", "x"), relative_doy(dates, best_idx, all_nan_mask, start_date))
+
+    return xr.Dataset(data_vars)
