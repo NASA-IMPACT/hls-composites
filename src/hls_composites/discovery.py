@@ -65,3 +65,26 @@ def list_common_prefixes_with_retry(
             delay = base_delay * (2**attempt) + random.uniform(0, base_delay)
             time.sleep(delay)
     raise AssertionError("unreachable")
+
+
+def scan_bucket_for_granules(
+    s3_client,
+    bucket: str,
+    tile: str,
+    date_range: DateRange,
+    satellites: tuple[str, ...] = ("L30", "S30"),
+) -> list[Granule]:
+    """List the bucket bottom-up to find granules for `tile` within `date_range`."""
+    granules: list[Granule] = []
+    for sat in satellites:
+        collection_dir = COLLECTION_DIR[sat]
+        for key_prefix in date_range.key_prefixes():
+            list_prefix = f"{collection_dir}/HLS.{sat}.T{tile}.{key_prefix}"
+            for common_prefix in list_common_prefixes_with_retry(s3_client, bucket, list_prefix):
+                granule = parse_granule_common_prefix(common_prefix, bucket)
+                if granule is None:
+                    continue
+                if granule.date not in date_range:
+                    continue
+                granules.append(granule)
+    return granules

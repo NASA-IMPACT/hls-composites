@@ -2,7 +2,8 @@ from datetime import date
 
 from botocore.exceptions import ClientError
 
-from hls_composites.discovery import list_common_prefixes_with_retry, parse_granule_common_prefix
+from hls_composites.discovery import list_common_prefixes_with_retry, parse_granule_common_prefix, scan_bucket_for_granules
+from hls_composites.models import DateRange
 
 
 def test_parse_granule_common_prefix_l30():
@@ -107,3 +108,79 @@ def test_list_common_prefixes_raises_after_exhausting_retries(monkeypatch):
     except ClientError as e:
         assert e.response["Error"]["Code"] == "SlowDown"
     assert paginator.calls == 2
+
+
+class _MultiCallFakePaginator:
+    """Returns a fixed page list per Prefix argument, regardless of call order."""
+
+    def __init__(self, pages_by_prefix: dict[str, list[str]]):
+        self._pages_by_prefix = pages_by_prefix
+        self.prefixes_seen: list[str] = []
+
+    def paginate(self, **kwargs):
+        prefix = kwargs["Prefix"]
+        self.prefixes_seen.append(prefix)
+        return [_page(self._pages_by_prefix.get(prefix, []))]
+
+
+class _MultiCallFakeS3Client:
+    def __init__(self, paginator: _MultiCallFakePaginator):
+        self._paginator = paginator
+
+    def get_paginator(self, name: str):
+        return self._paginator
+
+
+def test_scan_bucket_for_granules_filters_to_exact_month():
+    # A January scan generates four DOY-block prefixes (202000..202003). Two of
+    # them (202001, 202002) legitimately return nothing. The other two contain
+    # real granules -- 202000 holds Jan 1 cleanly, and 202003 holds both Jan 31
+    # and Feb 3 (DOY 034, within the same 202003 block -- overcoverage), which
+    # must get filtered out client-side.
+    date_range = DateRange(start=date(2020, 1, 1), end=date(2020, 1, 31))
+    prefixes = date_range.key_prefixes()
+    assert prefixes == ["202000", "202001", "202002", "202003"]
+    pages_by_prefix = {
+        "HLSL30.020/HLS.L30.T18SUJ.202000": [
+            "HLSL30.020/HLS.L30.T18SUJ.2020001T151911.v2.0/",  # Jan 1 -- in range
+        ],
+        "HLSL30.020/HLS.L30.T18SUJ.202003": [
+            "HLSL30.020/HLS.L30.T18SUJ.2020031T151911.v2.0/",  # Jan 31 -- in range
+            "HLSL30.020/HLS.L30.T18SUJ.2020034T101911.v2.0/",  # Feb 3 -- overcoverage, must be dropped
+        ],
+    }
+    paginator = _MultiCallFakePaginator(pages_by_prefix)
+    client = _MultiCallFakeS3Client(paginator)
+
+    granules = scan_bucket_for_granules(client, "lp-prod-protected", "18SUJ", date_range, satellites=("L30",))
+
+    assert sorted(g.date for g in granules) == [date(2020, 1, 1), date(2020, 1, 31)]
+    assert all(g.satellite == "L30" for g in granules)
+    assert sorted(paginator.prefixes_seen) == sorted(
+        f"HLSL30.020/HLS.L30.T18SUJ.{p}" for p in prefixes
+    )
+
+
+def test_scan_bucket_for_granules_queries_both_satellites_by_default():
+    date_range = DateRange(start=date(2020, 1, 1), end=date(2020, 1, 5))
+    l30_prefix = "HLSL30.020/HLS.L30.T18SUJ.202000"
+    s30_prefix = "HLSS30.020/HLS.S30.T18SUJ.202000"
+    pages_by_prefix = {
+        l30_prefix: ["HLSL30.020/HLS.L30.T18SUJ.2020002T151911.v2.0/"],
+        s30_prefix: ["HLSS30.020/HLS.S30.T18SUJ.2020003T101911.v2.0/"],
+    }
+    client = _MultiCallFakeS3Client(_MultiCallFakePaginator(pages_by_prefix))
+
+    granules = scan_bucket_for_granules(client, "lp-prod-protected", "18SUJ", date_range)
+
+    assert {g.satellite for g in granules} == {"L30", "S30"}
+    assert len(granules) == 2
+
+
+def test_scan_bucket_for_granules_returns_empty_list_when_nothing_found():
+    date_range = DateRange(start=date(2020, 1, 1), end=date(2020, 1, 5))
+    client = _MultiCallFakeS3Client(_MultiCallFakePaginator({}))
+
+    granules = scan_bucket_for_granules(client, "lp-prod-protected", "18SUJ", date_range)
+
+    assert granules == []
