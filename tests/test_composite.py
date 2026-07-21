@@ -15,6 +15,7 @@ from hls_composites.composite import (
     compute_basic_mask,
     compute_evi2,
     compute_negative_mask,
+    read_band_with_retry,
     relative_doy,
     select_best_index,
     valid_count,
@@ -214,3 +215,43 @@ def test_relative_doy_all_masked_pixel_is_zero():
     all_nan_mask = np.ones((1, 1), dtype=bool)
     result = relative_doy(dates, best_idx, all_nan_mask, start_date=date_type(2020, 1, 1))
     assert result[0, 0] == 0
+
+
+def test_read_band_with_retry_succeeds_first_try():
+    calls = []
+
+    def opener(url):
+        calls.append(url)
+        return np.array([[1, 2], [3, 4]])
+
+    result = read_band_with_retry("s3://x/y.tif", opener=opener)
+    assert result.tolist() == [[1, 2], [3, 4]]
+    assert calls == ["s3://x/y.tif"]
+
+
+def test_read_band_with_retry_succeeds_after_transient_failures(monkeypatch):
+    monkeypatch.setattr("hls_composites.composite.time.sleep", lambda _: None)
+    attempts = {"count": 0}
+
+    def opener(url):
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            raise IOError("transient")
+        return np.array([[1]])
+
+    result = read_band_with_retry("s3://x/y.tif", max_retries=3, opener=opener)
+    assert result.tolist() == [[1]]
+    assert attempts["count"] == 3
+
+
+def test_read_band_with_retry_raises_after_exhausting_retries(monkeypatch):
+    monkeypatch.setattr("hls_composites.composite.time.sleep", lambda _: None)
+
+    def opener(url):
+        raise IOError("permanent failure")
+
+    try:
+        read_band_with_retry("s3://x/y.tif", max_retries=2, opener=opener)
+        assert False, "expected IOError"
+    except IOError as e:
+        assert "permanent failure" in str(e)

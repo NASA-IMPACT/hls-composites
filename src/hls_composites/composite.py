@@ -1,8 +1,10 @@
 """Composite creation: masking, median-EVI2 selection, aggregation."""
 
+import time
 from datetime import date
 
 import numpy as np
+import rasterio as rio
 
 from hls_composites.models import Granule
 
@@ -133,3 +135,26 @@ def relative_doy(
     chosen_doy = doy_vals[best_idx]
     rel = chosen_doy - start_doy + 1
     return np.where(all_nan_mask, 0, rel).astype(np.uint8)
+
+
+def _default_opener(url: str) -> np.ndarray:
+    with rio.open(url) as src:
+        return src.read(1)
+
+
+def read_band_with_retry(
+    url: str,
+    max_retries: int = 3,
+    delay: float = 3.0,
+    opener=_default_opener,
+) -> np.ndarray:
+    last_error: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            return opener(url)
+        except Exception as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                time.sleep(delay)
+    assert last_error is not None
+    raise last_error
