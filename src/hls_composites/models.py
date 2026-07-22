@@ -10,8 +10,19 @@ Satellite = Literal["L30", "S30"]
 
 @dataclass(frozen=True)
 class Granule:
-    # s3:// URI up to and including the granule ID, WITHOUT band suffix, e.g.
-    # s3://bucket/HLSL30.020/HLS.L30.T55HDT.2026151T235621.v2.0/HLS.L30.T55HDT.2026151T235621.v2.0
+    """One HLS granule's S3 location, satellite, and observation date.
+
+    Parameters
+    ----------
+    path : str
+        S3 URI up to and including the granule ID, WITHOUT band suffix, e.g.
+        ``s3://bucket/HLSL30.020/HLS.L30.T55HDT.2026151T235621.v2.0/HLS.L30.T55HDT.2026151T235621.v2.0``.
+    satellite : {"L30", "S30"}
+        Which HLS product the granule belongs to.
+    date : datetime.date
+        Observation date parsed from the granule ID.
+    """
+
     path: str
     satellite: Satellite
     date: date
@@ -19,6 +30,21 @@ class Granule:
 
 @dataclass(frozen=True)
 class DateRange:
+    """An inclusive start/end date range with S3 key-prefix generation.
+
+    Parameters
+    ----------
+    start : datetime.date
+        First date in the range, inclusive.
+    end : datetime.date
+        Last date in the range, inclusive.
+
+    Raises
+    ------
+    ValueError
+        If `start` is after `end`.
+    """
+
     start: date  # inclusive
     end: date    # inclusive
 
@@ -27,10 +53,31 @@ class DateRange:
             raise ValueError(f"start {self.start} is after end {self.end}")
 
     def __contains__(self, d: date) -> bool:
+        """Check whether a date falls within this range, inclusive.
+
+        Parameters
+        ----------
+        d : datetime.date
+            Date to check.
+
+        Returns
+        -------
+        bool
+            True if `start <= d <= end`.
+        """
         return self.start <= d <= self.end
 
     def key_prefixes(self) -> list[str]:
-        """S3 prefix strings covering this range's YYYYDDD keys."""
+        """Compute S3 prefixes covering this range's YYYYDDD keys.
+
+        Returns
+        -------
+        list of str
+            A small set of prefix strings guaranteed to cover every date in
+            this range when used as an S3 ``list_objects_v2`` prefix. May
+            overcover (match some dates outside the range); callers must
+            filter results against the range themselves.
+        """
         is_full_year = (
             self.start.month == 1
             and self.start.day == 1

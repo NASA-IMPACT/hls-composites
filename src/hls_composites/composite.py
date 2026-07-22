@@ -49,6 +49,21 @@ QA_FILL = 255
 
 
 def asset_url(granule: Granule, band: str) -> str:
+    """Build the S3 URI for one band asset of a granule.
+
+    Parameters
+    ----------
+    granule : Granule
+        Granule to build the asset URL for.
+    band : str
+        Logical band name, e.g. `"red"` or `"nir_narrow"` (see
+        `BAND_CODE` for valid names).
+
+    Returns
+    -------
+    str
+        Full S3 URI of the band's GeoTIFF asset.
+    """
     band_code = BAND_CODE[granule.satellite][band]
     return f"{granule.path}.{band_code}.tif"
 
@@ -57,6 +72,21 @@ _NEGATIVE_CHECK_BANDS = ("red", "nir_narrow", "blue", "green", "swir_1", "swir_2
 
 
 def compute_negative_mask(bands: dict[str, np.ndarray]) -> np.ndarray:
+    """Flag observations with a negative reflectance value.
+
+    Parameters
+    ----------
+    bands : dict of str to numpy.ndarray
+        Reflectance band stacks, each shaped `(T, Y, X)`. Must include
+        `"red"`, `"nir_narrow"`, `"blue"`, `"green"`, `"swir_1"`, and
+        `"swir_2"`.
+
+    Returns
+    -------
+    numpy.ndarray
+        Boolean mask, shaped `(T, Y, X)`, True where any checked band
+        is negative.
+    """
     mask = np.zeros_like(bands["red"], dtype=bool)
     for band in _NEGATIVE_CHECK_BANDS:
         mask |= bands[band] < 0
@@ -64,6 +94,22 @@ def compute_negative_mask(bands: dict[str, np.ndarray]) -> np.ndarray:
 
 
 def compute_basic_mask(bands: dict[str, np.ndarray], fmask: np.ndarray) -> np.ndarray:
+    """Flag cloud, shadow, fill, and negative-value observations.
+
+    Parameters
+    ----------
+    bands : dict of str to numpy.ndarray
+        Reflectance band stacks, each shaped `(T, Y, X)` (see
+        `compute_negative_mask`).
+    fmask : numpy.ndarray
+        Fmask QA band stack, shaped `(T, Y, X)`.
+
+    Returns
+    -------
+    numpy.ndarray
+        Boolean mask, shaped `(T, Y, X)`, True where an observation is
+        cloud, adjacent-cloud, cloud-shadow, fill, or negative-valued.
+    """
     cloud = (fmask & (1 << QA_BIT["cloud"])) > 0
     adj_cloud = (fmask & (1 << QA_BIT["adj_cloud"])) > 0
     cloud_shadow = (fmask & (1 << QA_BIT["cloud_shadow"])) > 0
@@ -73,6 +119,27 @@ def compute_basic_mask(bands: dict[str, np.ndarray], fmask: np.ndarray) -> np.nd
 
 
 def compute_bad_pixel_mask(bands: dict[str, np.ndarray], fmask: np.ndarray) -> np.ndarray:
+    """Flag observations excluded from compositing, aerosol included.
+
+    Extends `compute_basic_mask` with a conditional high-aerosol rule: a
+    high-aerosol observation is excluded only if a low/moderate-aerosol
+    alternative exists elsewhere in that pixel's temporal stack, to avoid
+    manufacturing data holes.
+
+    Parameters
+    ----------
+    bands : dict of str to numpy.ndarray
+        Reflectance band stacks, each shaped `(T, Y, X)` (see
+        `compute_negative_mask`).
+    fmask : numpy.ndarray
+        Fmask QA band stack, shaped `(T, Y, X)`.
+
+    Returns
+    -------
+    numpy.ndarray
+        Boolean mask, shaped `(T, Y, X)`, True where an observation is
+        excluded from compositing.
+    """
     basic = compute_basic_mask(bands, fmask)
     is_high_aerosol = ((fmask & (1 << QA_BIT["aerosol_high"])) > 0) & (
         (fmask & (1 << QA_BIT["aerosol_low"])) > 0
@@ -83,10 +150,38 @@ def compute_bad_pixel_mask(bands: dict[str, np.ndarray], fmask: np.ndarray) -> n
 
 
 def compute_all_nan_mask(bad_pixel_mask: np.ndarray) -> np.ndarray:
+    """Flag pixels with no valid observation in the temporal stack.
+
+    Parameters
+    ----------
+    bad_pixel_mask : numpy.ndarray
+        Boolean mask, shaped `(T, Y, X)` (see `compute_bad_pixel_mask`).
+
+    Returns
+    -------
+    numpy.ndarray
+        Boolean mask, shaped `(Y, X)`, True where every timestep at
+        that pixel is excluded.
+    """
     return np.all(bad_pixel_mask, axis=0)
 
 
 def compute_evi2(red: np.ndarray, nir: np.ndarray) -> np.ndarray:
+    """Compute the two-band Enhanced Vegetation Index (EVI2).
+
+    Parameters
+    ----------
+    red : numpy.ndarray
+        Red band stack, unscaled digital numbers.
+    nir : numpy.ndarray
+        Near-infrared (narrow) band stack, unscaled digital numbers,
+        same shape as `red`.
+
+    Returns
+    -------
+    numpy.ndarray
+        EVI2 values, same shape as `red`, as `float32`.
+    """
     red_r = red.astype(np.float32) * SR_SCALE
     nir_r = nir.astype(np.float32) * SR_SCALE
     return 2.5 * (nir_r - red_r) / (nir_r + 2.4 * red_r + 1)
@@ -95,6 +190,23 @@ def compute_evi2(red: np.ndarray, nir: np.ndarray) -> np.ndarray:
 def select_best_index(
     evi2: np.ndarray, bad_pixel_mask: np.ndarray, all_nan_mask: np.ndarray
 ) -> np.ndarray:
+    """Pick the observation whose EVI2 is closest to the per-pixel median.
+
+    Parameters
+    ----------
+    evi2 : numpy.ndarray
+        EVI2 values, shaped `(T, Y, X)` (see `compute_evi2`).
+    bad_pixel_mask : numpy.ndarray
+        Boolean mask, shaped `(T, Y, X)` (see `compute_bad_pixel_mask`).
+    all_nan_mask : numpy.ndarray
+        Boolean mask, shaped `(Y, X)` (see `compute_all_nan_mask`).
+
+    Returns
+    -------
+    numpy.ndarray
+        `int16` array, shaped `(Y, X)`, with the chosen timestep index
+        per pixel. Pixels in `all_nan_mask` get index 0.
+    """
     evi2_masked = evi2.copy()
     evi2_masked[bad_pixel_mask] = np.nan
     with np.errstate(all="ignore"):
@@ -109,6 +221,25 @@ def select_best_index(
 def composite_band(
     values: np.ndarray, best_idx: np.ndarray, all_nan_mask: np.ndarray, nodata: int
 ) -> np.ndarray:
+    """Select each pixel's band value at its chosen observation index.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        Band values, shaped `(T, Y, X)`.
+    best_idx : numpy.ndarray
+        Chosen timestep index per pixel, shaped `(Y, X)` (see
+        `select_best_index`).
+    all_nan_mask : numpy.ndarray
+        Boolean mask, shaped `(Y, X)` (see `compute_all_nan_mask`).
+    nodata : int
+        Fill value for pixels in `all_nan_mask`.
+
+    Returns
+    -------
+    numpy.ndarray
+        Composite band values, shaped `(Y, X)`.
+    """
     chosen = np.take_along_axis(values, best_idx[None, :, :], axis=0)[0]
     return np.where(all_nan_mask, nodata, chosen)
 
@@ -116,6 +247,23 @@ def composite_band(
 def band_std(
     values: np.ndarray, bad_pixel_mask: np.ndarray, all_nan_mask: np.ndarray
 ) -> np.ndarray:
+    """Compute the per-pixel standard deviation across valid observations.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        Band values, shaped `(T, Y, X)`.
+    bad_pixel_mask : numpy.ndarray
+        Boolean mask, shaped `(T, Y, X)` (see `compute_bad_pixel_mask`).
+    all_nan_mask : numpy.ndarray
+        Boolean mask, shaped `(Y, X)` (see `compute_all_nan_mask`).
+
+    Returns
+    -------
+    numpy.ndarray
+        `float32` standard deviation per pixel, shaped `(Y, X)`. Pixels
+        in `all_nan_mask` are 0.
+    """
     values_f = values.astype(np.float32).copy()
     values_f[bad_pixel_mask] = np.nan
     with np.errstate(all="ignore"):
@@ -125,12 +273,45 @@ def band_std(
 
 
 def valid_count(bad_pixel_mask: np.ndarray) -> np.ndarray:
+    """Count valid (unmasked) observations per pixel.
+
+    Parameters
+    ----------
+    bad_pixel_mask : numpy.ndarray
+        Boolean mask, shaped `(T, Y, X)` (see `compute_bad_pixel_mask`).
+
+    Returns
+    -------
+    numpy.ndarray
+        `uint8` count of unmasked observations per pixel, shaped `(Y, X)`.
+    """
     return np.sum(~bad_pixel_mask, axis=0).astype(np.uint8)
 
 
 def relative_doy(
     dates: list[date], best_idx: np.ndarray, all_nan_mask: np.ndarray, start_date: date
 ) -> np.ndarray:
+    """Compute each pixel's chosen observation date, relative to start_date.
+
+    Parameters
+    ----------
+    dates : list of datetime.date
+        Observation date per timestep, same order as the `T` axis of
+        `best_idx`'s source stacks.
+    best_idx : numpy.ndarray
+        Chosen timestep index per pixel, shaped `(Y, X)` (see
+        `select_best_index`).
+    all_nan_mask : numpy.ndarray
+        Boolean mask, shaped `(Y, X)` (see `compute_all_nan_mask`).
+    start_date : datetime.date
+        Reference date the day-of-year offset is computed against.
+
+    Returns
+    -------
+    numpy.ndarray
+        `uint8` day-of-year offset per pixel, shaped `(Y, X)`, relative
+        to `start_date`. Pixels in `all_nan_mask` are 0.
+    """
     doy_vals = np.array([d.timetuple().tm_yday for d in dates], dtype=np.int32)
     start_doy = start_date.timetuple().tm_yday
     chosen_doy = doy_vals[best_idx]
@@ -149,6 +330,31 @@ def read_band_with_retry(
     delay: float = 3.0,
     opener=_default_opener,
 ) -> np.ndarray:
+    """Read one band asset, retrying transient failures.
+
+    Parameters
+    ----------
+    url : str
+        S3 or local URL of the band's GeoTIFF asset (see `asset_url`).
+    max_retries : int, optional
+        Maximum number of attempts before giving up, by default 3.
+    delay : float, optional
+        Seconds to wait between attempts, by default 3.0.
+    opener : callable, optional
+        Function taking a URL and returning a 2D array; defaults to
+        reading band 1 via rasterio. Overridable for testing.
+
+    Returns
+    -------
+    numpy.ndarray
+        The band's pixel data.
+
+    Raises
+    ------
+    Exception
+        Whatever `opener` raised on the last attempt, if every attempt
+        failed.
+    """
     last_error: Exception | None = None
     for attempt in range(max_retries):
         try:
@@ -167,6 +373,39 @@ def build_composite(
     bands: list[str] | None = None,
     opener=_default_opener,
 ) -> xr.Dataset:
+    """Build a cloud-free composite Dataset from a list of granules.
+
+    Reads each band across all granules, masks bad pixels (cloud,
+    shadow, aerosol), picks the per-pixel observation closest to the
+    median EVI2, and aggregates the result plus std/ValidCount/DOY into
+    a single Dataset.
+
+    Parameters
+    ----------
+    granules : list of Granule
+        Granules to composite, typically from `scan_bucket_for_granules`.
+        Must be non-empty.
+    start_date : datetime.date
+        Reference date for the output `DOY` variable (see
+        `relative_doy`).
+    bands : list of str or None, optional
+        Logical band names to include (see `BAND_CODE`), defaulting to
+        `DEFAULT_BANDS` when None.
+    opener : callable, optional
+        Function taking a URL and returning a 2D array, passed through
+        to `read_band_with_retry`. Overridable for testing.
+
+    Returns
+    -------
+    xarray.Dataset
+        One variable per band (composite value), `{band}_std` for each
+        non-Fmask band, plus `ValidCount` and `DOY`.
+
+    Raises
+    ------
+    ValueError
+        If `granules` is empty.
+    """
     if not granules:
         raise ValueError("build_composite requires at least one granule")
     if bands is None:

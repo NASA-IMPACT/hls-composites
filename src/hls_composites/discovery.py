@@ -1,13 +1,13 @@
 """Bottom-up S3 bucket scanning for HLS granule discovery."""
 
-import random
 import re
-import time
 from datetime import datetime
-
-from botocore.exceptions import ClientError
+from typing import TYPE_CHECKING
 
 from hls_composites.models import DateRange, Granule
+
+if TYPE_CHECKING:
+    from mypy_boto3_s3.client import S3Client
 
 COLLECTION_DIR: dict[str, str] = {"L30": "HLSL30.020", "S30": "HLSS30.020"}
 
@@ -17,9 +17,21 @@ _GRANULE_ID_PATTERN = re.compile(
 
 
 def parse_granule_common_prefix(common_prefix: str, bucket: str) -> Granule | None:
-    """Parse a CommonPrefix string like
-    'HLSL30.020/HLS.L30.T55HDT.2026151T235621.v2.0/' into a Granule.
-    Returns None if it doesn't match the expected granule-ID pattern.
+    """Parse an S3 CommonPrefix string into a Granule.
+
+    Parameters
+    ----------
+    common_prefix : str
+        A CommonPrefix from a ``list_objects_v2`` response, e.g.
+        ``"HLSL30.020/HLS.L30.T55HDT.2026151T235621.v2.0/"``.
+    bucket : str
+        Name of the S3 bucket the prefix was listed from.
+
+    Returns
+    -------
+    Granule or None
+        The parsed granule, or None if `common_prefix` doesn't match the
+        expected granule-ID pattern.
     """
     trimmed = common_prefix.rstrip("/")
     granule_id = trimmed.rsplit("/", 1)[-1]
@@ -36,51 +48,75 @@ def parse_granule_common_prefix(common_prefix: str, bucket: str) -> Granule | No
     )
 
 
-_THROTTLE_ERROR_CODES = {"SlowDown", "RequestLimitExceeded", "InternalError", "ServiceUnavailable"}
+def list_common_prefixes(s3_client: "S3Client", bucket: str, prefix: str) -> list[str]:
+    """List S3 CommonPrefixes under a prefix.
 
+    Paginates ``list_objects_v2`` with ``Delimiter="/"``. Retries on
+    throttling are expected to be handled by `s3_client`'s own retry
+    configuration (e.g. boto3's `Config(retries={"mode": "adaptive"})`),
+    not by this function.
 
-def list_common_prefixes_with_retry(
-    s3_client,
-    bucket: str,
-    prefix: str,
-    max_retries: int = 5,
-    base_delay: float = 1.0,
-) -> list[str]:
-    """Paginate list_objects_v2 under `prefix` with Delimiter='/', retrying on
-    throttling errors with exponential backoff + jitter. Returns the raw
-    CommonPrefixes 'Prefix' strings.
+    Parameters
+    ----------
+    s3_client : mypy_boto3_s3.client.S3Client
+        An S3 client, e.g. from `boto3.client("s3")`, configured with
+        the desired retry policy.
+    bucket : str
+        Name of the S3 bucket to list.
+    prefix : str
+        Key prefix to list under.
+
+    Returns
+    -------
+    list of str
+        The raw ``CommonPrefixes[].Prefix`` strings returned by S3.
     """
-    for attempt in range(max_retries):
-        try:
-            prefixes: list[str] = []
-            paginator = s3_client.get_paginator("list_objects_v2")
-            for page in paginator.paginate(Bucket=bucket, Prefix=prefix, Delimiter="/"):
-                for entry in page.get("CommonPrefixes", []):
-                    prefixes.append(entry["Prefix"])
-            return prefixes
-        except ClientError as e:
-            error_code = e.response.get("Error", {}).get("Code", "")
-            if error_code not in _THROTTLE_ERROR_CODES or attempt == max_retries - 1:
-                raise
-            delay = base_delay * (2**attempt) + random.uniform(0, base_delay)
-            time.sleep(delay)
-    raise AssertionError("unreachable")
+    prefixes: list[str] = []
+    paginator = s3_client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix, Delimiter="/"):
+        for entry in page.get("CommonPrefixes", []):
+            prefixes.append(entry["Prefix"])
+    return prefixes
 
 
 def scan_bucket_for_granules(
-    s3_client,
+    s3_client: "S3Client",
     bucket: str,
     tile: str,
     date_range: DateRange,
     satellites: tuple[str, ...] = ("L30", "S30"),
 ) -> list[Granule]:
-    """List the bucket bottom-up to find granules for `tile` within `date_range`."""
+    """Find HLS granules for a tile within a date range via bucket scan.
+
+    Lists the bucket bottom-up (no STAC/CMR involved), using
+    `DateRange.key_prefixes` to avoid scanning the whole bucket.
+
+    Parameters
+    ----------
+    s3_client : mypy_boto3_s3.client.S3Client
+        An S3 client, e.g. from `boto3.client("s3")`, configured with
+        the desired retry policy.
+    bucket : str
+        Name of the S3 bucket to scan.
+    tile : str
+        MGRS tile ID, without the leading "T", e.g. `"18SUJ"`.
+    date_range : DateRange
+        Date range to find granules within.
+    satellites : tuple of str, optional
+        Which satellites to search, by default `("L30", "S30")`.
+
+    Returns
+    -------
+    list of Granule
+        Granules found for `tile` within `date_range`, across all
+        requested `satellites`.
+    """
     granules: list[Granule] = []
     for sat in satellites:
         collection_dir = COLLECTION_DIR[sat]
         for key_prefix in date_range.key_prefixes():
             list_prefix = f"{collection_dir}/HLS.{sat}.T{tile}.{key_prefix}"
-            for common_prefix in list_common_prefixes_with_retry(s3_client, bucket, list_prefix):
+            for common_prefix in list_common_prefixes(s3_client, bucket, list_prefix):
                 granule = parse_granule_common_prefix(common_prefix, bucket)
                 if granule is None:
                     continue
