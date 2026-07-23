@@ -1,6 +1,5 @@
 """Shared data types for granule discovery and composite creation."""
 
-import os
 from dataclasses import dataclass
 from datetime import date
 from typing import Literal
@@ -68,42 +67,23 @@ class DateRange:
         return self.start <= d <= self.end
 
     def key_prefixes(self) -> list[str]:
-        """Compute S3 prefixes covering this range's YYYYDDD keys.
+        """Compute S3 year prefixes covering this range.
+
+        One ``YYYY`` prefix per calendar year touched by the range.
+        HLS has at most one observation per day per satellite, so even
+        a full year (<=366 keys) fits well within a single
+        ``list_objects_v2`` page (max 1000 keys); the boto3 paginator
+        transparently fetches further pages if that assumption is ever
+        exceeded. Splitting more finely than "one call per year" would
+        add round-trips without reducing page count, so this doesn't
+        bother.
 
         Returns
         -------
         list of str
-            A small set of prefix strings guaranteed to cover every date in
-            this range when used as an S3 ``list_objects_v2`` prefix. May
-            overcover (match some dates outside the range); callers must
-            filter results against the range themselves.
+            One ``YYYY`` prefix string per year in `[start.year,
+            end.year]`. Overcovers (matches dates outside the range
+            within the same year); callers must filter results against
+            the range themselves.
         """
-        is_full_year = (
-            self.start.month == 1
-            and self.start.day == 1
-            and self.end.month == 12
-            and self.end.day == 31
-            and self.start.year == self.end.year
-        )
-        if is_full_year:
-            return [f"{self.start.year:04d}"]
-        return _range_prefixes(_date_key(self.start), _date_key(self.end))
-
-
-def _date_key(d: date) -> str:
-    return f"{d.year:04d}{d.timetuple().tm_yday:03d}"
-
-
-def _range_prefixes(lo: str, hi: str) -> list[str]:
-    if lo == hi:
-        return [lo]
-    common = os.path.commonprefix([lo, hi])
-    if len(common) == len(lo) - 1:
-        return [common]  # only the last digit differs -- already tight
-    pos = len(common)
-    width = len(lo)
-    block = 10 ** (width - pos - 1)
-    boundary = (int(lo[: pos + 1]) + 1) * block
-    left_hi = str(boundary - 1).zfill(width)
-    right_lo = str(boundary).zfill(width)
-    return _range_prefixes(lo, left_hi) + _range_prefixes(right_lo, hi)
+        return [f"{year:04d}" for year in range(self.start.year, self.end.year + 1)]

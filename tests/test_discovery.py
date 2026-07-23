@@ -1,8 +1,6 @@
 from datetime import date
 
-from botocore.exceptions import ClientError
-
-from hls_composites.discovery import list_common_prefixes_with_retry, parse_granule_common_prefix, scan_bucket_for_granules
+from hls_composites.discovery import list_common_prefixes, parse_granule_common_prefix, scan_bucket_for_granules
 from hls_composites.models import DateRange
 
 
@@ -37,26 +35,18 @@ def test_parse_granule_common_prefix_without_trailing_slash():
     assert granule.date == date(2026, 5, 31)
 
 
-def _client_error(code: str) -> ClientError:
-    return ClientError({"Error": {"Code": code, "Message": "x"}}, "ListObjectsV2")
-
-
 def _page(prefixes: list[str]) -> dict:
     return {"CommonPrefixes": [{"Prefix": p} for p in prefixes]}
 
 
 class _FakePaginator:
-    def __init__(self, sequence: list):
-        # Each element is either an Exception to raise, or a list of pages to return.
-        self._sequence = sequence
+    def __init__(self, pages: list[dict]):
+        self._pages = pages
         self.calls = 0
 
     def paginate(self, **kwargs):
-        item = self._sequence[self.calls]
         self.calls += 1
-        if isinstance(item, Exception):
-            raise item
-        return item
+        return self._pages
 
 
 class _FakeS3Client:
@@ -68,46 +58,19 @@ class _FakeS3Client:
         return self._paginator
 
 
-def test_list_common_prefixes_returns_results_on_first_try():
-    paginator = _FakePaginator([[_page(["a/", "b/"])]])
+def test_list_common_prefixes_returns_prefixes_across_pages():
+    paginator = _FakePaginator([_page(["a/", "b/"]), _page(["c/"])])
     client = _FakeS3Client(paginator)
-    result = list_common_prefixes_with_retry(client, "bucket", "prefix", max_retries=3)
-    assert result == ["a/", "b/"]
+    result = list_common_prefixes(client, "bucket", "prefix")
+    assert result == ["a/", "b/", "c/"]
     assert paginator.calls == 1
 
 
-def test_list_common_prefixes_retries_on_throttling(monkeypatch):
-    monkeypatch.setattr("hls_composites.discovery.time.sleep", lambda _: None)
-    paginator = _FakePaginator(
-        [_client_error("SlowDown"), _client_error("RequestLimitExceeded"), [_page(["a/"])]]
-    )
+def test_list_common_prefixes_returns_empty_list_when_nothing_found():
+    paginator = _FakePaginator([_page([])])
     client = _FakeS3Client(paginator)
-    result = list_common_prefixes_with_retry(client, "bucket", "prefix", max_retries=5)
-    assert result == ["a/"]
-    assert paginator.calls == 3
-
-
-def test_list_common_prefixes_raises_immediately_on_non_throttling_error():
-    paginator = _FakePaginator([_client_error("AccessDenied")])
-    client = _FakeS3Client(paginator)
-    try:
-        list_common_prefixes_with_retry(client, "bucket", "prefix", max_retries=5)
-        assert False, "expected ClientError"
-    except ClientError as e:
-        assert e.response["Error"]["Code"] == "AccessDenied"
-    assert paginator.calls == 1
-
-
-def test_list_common_prefixes_raises_after_exhausting_retries(monkeypatch):
-    monkeypatch.setattr("hls_composites.discovery.time.sleep", lambda _: None)
-    paginator = _FakePaginator([_client_error("SlowDown"), _client_error("SlowDown")])
-    client = _FakeS3Client(paginator)
-    try:
-        list_common_prefixes_with_retry(client, "bucket", "prefix", max_retries=2)
-        assert False, "expected ClientError"
-    except ClientError as e:
-        assert e.response["Error"]["Code"] == "SlowDown"
-    assert paginator.calls == 2
+    result = list_common_prefixes(client, "bucket", "prefix")
+    assert result == []
 
 
 class _MultiCallFakePaginator:
@@ -132,21 +95,17 @@ class _MultiCallFakeS3Client:
 
 
 def test_scan_bucket_for_granules_filters_to_exact_month():
-    # A January scan generates four DOY-block prefixes (202000..202003). Two of
-    # them (202001, 202002) legitimately return nothing. The other two contain
-    # real granules -- 202000 holds Jan 1 cleanly, and 202003 holds both Jan 31
-    # and Feb 3 (DOY 034, within the same 202003 block -- overcoverage), which
-    # must get filtered out client-side.
+    # A January scan uses the single whole-year prefix "2020" (see
+    # DateRange.key_prefixes). Feb 14 shares that prefix too -- realistic
+    # overcoverage that must get filtered out client-side.
     date_range = DateRange(start=date(2020, 1, 1), end=date(2020, 1, 31))
     prefixes = date_range.key_prefixes()
-    assert prefixes == ["202000", "202001", "202002", "202003"]
+    assert prefixes == ["2020"]
     pages_by_prefix = {
-        "HLSL30.020/HLS.L30.T18SUJ.202000": [
+        "HLSL30.020/HLS.L30.T18SUJ.2020": [
             "HLSL30.020/HLS.L30.T18SUJ.2020001T151911.v2.0/",  # Jan 1 -- in range
-        ],
-        "HLSL30.020/HLS.L30.T18SUJ.202003": [
             "HLSL30.020/HLS.L30.T18SUJ.2020031T151911.v2.0/",  # Jan 31 -- in range
-            "HLSL30.020/HLS.L30.T18SUJ.2020034T101911.v2.0/",  # Feb 3 -- overcoverage, must be dropped
+            "HLSL30.020/HLS.L30.T18SUJ.2020045T101911.v2.0/",  # Feb 14 -- overcoverage, must be dropped
         ],
     }
     paginator = _MultiCallFakePaginator(pages_by_prefix)
@@ -156,15 +115,13 @@ def test_scan_bucket_for_granules_filters_to_exact_month():
 
     assert sorted(g.date for g in granules) == [date(2020, 1, 1), date(2020, 1, 31)]
     assert all(g.satellite == "L30" for g in granules)
-    assert sorted(paginator.prefixes_seen) == sorted(
-        f"HLSL30.020/HLS.L30.T18SUJ.{p}" for p in prefixes
-    )
+    assert paginator.prefixes_seen == ["HLSL30.020/HLS.L30.T18SUJ.2020"]
 
 
 def test_scan_bucket_for_granules_queries_both_satellites_by_default():
     date_range = DateRange(start=date(2020, 1, 1), end=date(2020, 1, 5))
-    l30_prefix = "HLSL30.020/HLS.L30.T18SUJ.202000"
-    s30_prefix = "HLSS30.020/HLS.S30.T18SUJ.202000"
+    l30_prefix = "HLSL30.020/HLS.L30.T18SUJ.2020"
+    s30_prefix = "HLSS30.020/HLS.S30.T18SUJ.2020"
     pages_by_prefix = {
         l30_prefix: ["HLSL30.020/HLS.L30.T18SUJ.2020002T151911.v2.0/"],
         s30_prefix: ["HLSS30.020/HLS.S30.T18SUJ.2020003T101911.v2.0/"],

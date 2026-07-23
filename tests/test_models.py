@@ -69,31 +69,22 @@ def test_key_prefixes_full_leap_year_covers_feb_29():
     _assert_full_coverage(r)
 
 
-def test_key_prefixes_january_covers_full_month():
+def test_key_prefixes_january_is_also_just_the_year_prefix():
+    # One-prefix-per-year is intentionally coarse: even a single month gets
+    # the whole-year prefix, since a full year of HLS granules (<=366/sat)
+    # comfortably fits one list_objects_v2 page. Overcoverage is filtered
+    # client-side, so this is fine -- see key_prefixes' docstring.
     r = DateRange(start=date(2020, 1, 1), end=date(2020, 1, 31))
+    assert r.key_prefixes() == ["2020"]
     _assert_full_coverage(r)
 
 
-def test_key_prefixes_boundary_crossing_month_covers_full_month():
-    # April 2020: DOY 092-121, crosses the 099->100 boundary.
-    r = DateRange(start=date(2020, 4, 1), end=date(2020, 4, 30))
-    _assert_full_coverage(r)
-
-
-def test_key_prefixes_boundary_crossing_month_does_not_regress_to_whole_year():
-    # Regression guard: a naive "stop at first nonempty common prefix" rule
-    # would return just ["2020"] here, i.e. the entire year, for an April-only
-    # request. None of the returned prefixes may be that short.
-    r = DateRange(start=date(2020, 4, 1), end=date(2020, 4, 30))
-    for prefix in r.key_prefixes():
-        assert len(prefix) > 4, f"prefix {prefix!r} overcovers to (nearly) the whole year"
-
-
-def test_key_prefixes_multi_year_window_covers_full_range():
+def test_key_prefixes_multi_year_window_returns_one_prefix_per_year():
     r = DateRange(start=date(2020, 6, 15), end=date(2021, 6, 14))
+    assert r.key_prefixes() == ["2020", "2021"]
     _assert_full_coverage(r)
 
 
 def test_key_prefixes_single_day():
     r = DateRange(start=date(2020, 3, 5), end=date(2020, 3, 5))
-    assert r.key_prefixes() == ["2020065"]
+    assert r.key_prefixes() == ["2020"]
