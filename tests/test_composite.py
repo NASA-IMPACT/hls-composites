@@ -22,6 +22,7 @@ from hls_composites.bands import (
 )
 from hls_composites.composite import (
     QA_BIT,
+    _composite_block,
     asset_url,
     band_std,
     build_composite,
@@ -36,6 +37,7 @@ from hls_composites.composite import (
     select_best_index,
     valid_count,
 )
+from hls_composites.indices import ALL_INDICES, NDVI
 from hls_composites.models import Granule
 
 
@@ -436,3 +438,85 @@ def test_build_composite_end_to_end_with_synthetic_reader():
 def test_build_composite_raises_on_empty_granule_list():
     with pytest.raises(ValueError, match="at least one granule"):
         build_composite([], start_date=date(2020, 1, 1))
+
+
+def _block_reflectance(red: np.ndarray, nir: np.ndarray) -> dict:
+    """Build a (T, 2, 2) reflectance stack varying only red/nir; others clear."""
+    t = red.shape[0]
+    stack = {b: np.full((t, 2, 2), 1000, dtype=np.int16) for b in REFLECTANCE_BANDS}
+    stack[RED] = red
+    stack[NIR_NARROW] = nir
+    return stack
+
+
+def _block_fixture():
+    # T=3, 2x2 tile. red fixed (0.10), nir rises 0.20/0.40/0.60 so EVI2 is strictly
+    # increasing and the per-pixel median lands unambiguously on the middle timestep.
+    # Pixel (0,0)/(1,1) clear at all three; (0,1) valid only at t2; (1,0) cloudy at all.
+    cloud = 1 << QA_BIT["cloud"]
+    red = np.full((3, 2, 2), 1000, dtype=np.int16)
+    nir = np.stack(
+        [
+            np.full((2, 2), 2000, dtype=np.int16),
+            np.full((2, 2), 4000, dtype=np.int16),
+            np.full((2, 2), 6000, dtype=np.int16),
+        ]
+    )
+    fmask = np.array(
+        [
+            [[0, cloud], [cloud, 0]],
+            [[0, cloud], [cloud, 0]],
+            [[0, 0], [cloud, 0]],
+        ],
+        dtype=np.uint8,
+    )
+    reflectance = _block_reflectance(red, nir)
+    dates = [date(2020, 1, 5), date(2020, 1, 15), date(2020, 1, 25)]
+    return reflectance, fmask, dates
+
+
+def test_composite_block_ndvi_value_std_and_aux():
+    reflectance, fmask, dates = _block_fixture()
+    out = _composite_block(
+        reflectance, fmask, dates, start_date=date(2020, 1, 1), indices=[NDVI()]
+    )
+
+    # Pixel (0,0): clear at all 3 -> median-EVI2 selects the middle timestep (t1) ->
+    # NDVI of t1: (0.40-0.10)/(0.40+0.10) = 0.6 -> encoded 6000.
+    assert out["NDVI"][0, 0] == 6000
+    assert out["ValidCount"][0, 0] == 3
+    # DOY of chosen obs (t1 = Jan 15), relative to Jan 1: 15 - 1 + 1 = 15.
+    assert out["DOY"][0, 0] == 15
+
+    # Pixel (0,1): only t2 valid -> NDVI of t2: (0.60-0.10)/(0.60+0.10).
+    t2 = (0.60 - 0.10) / (0.60 + 0.10)
+    assert out["NDVI"][0, 1] == round(t2 / 1e-4)
+    assert out["ValidCount"][0, 1] == 1
+    assert out["DOY"][0, 1] == 25
+
+    # Pixel (1,0): cloudy at every timestep -> fill everywhere.
+    assert out["NDVI"][1, 0] == NDVI.fill_value
+    assert out["NDVI_std"][1, 0] == NDVI.fill_value
+    assert out["ValidCount"][1, 0] == 0
+    assert out["DOY"][1, 0] == 0
+
+    # NDVI_std at (0,0): std across all 3 timesteps' NDVI.
+    ndvi_t = [
+        (0.20 - 0.10) / (0.20 + 0.10),
+        (0.40 - 0.10) / (0.40 + 0.10),
+        (0.60 - 0.10) / (0.60 + 0.10),
+    ]
+    expected_std = round(float(np.std(ndvi_t)) / 1e-4)
+    assert out["NDVI_std"][0, 0] == expected_std
+
+
+def test_composite_block_emits_all_indices_and_aux():
+    reflectance, fmask, dates = _block_fixture()
+    out = _composite_block(reflectance, fmask, dates, start_date=date(2020, 1, 1))
+    for index in ALL_INDICES:
+        assert index.name in out
+        assert f"{index.name}_std" in out
+        assert out[index.name].shape == (2, 2)
+        assert out[index.name].dtype == np.int16
+    assert out["ValidCount"].dtype == np.uint8
+    assert out["DOY"].dtype == np.uint8

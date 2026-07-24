@@ -13,8 +13,10 @@ from hls_composites.bands import (
     NIR_NARROW,
     QA_FILL,
     RED,
+    SPEC_BY_BAND,
     BandSpec,
 )
+from hls_composites.indices import ALL_INDICES, Index
 from hls_composites.models import Granule
 
 QA_BIT = {
@@ -305,6 +307,103 @@ def relative_doy(
     chosen_doy = doy_vals[best_idx]
     rel = chosen_doy - start_doy + 1
     return np.where(all_nan_mask, 0, rel).astype(np.uint8)
+
+
+def _encode_index(
+    values: np.ndarray, index: Index, all_nan_mask: np.ndarray
+) -> np.ndarray:
+    """Scale a raw float index (or its std) to its int16 storage encoding.
+
+    Applies `index.scale_factor` (values are divided by it, matching the
+    HLS-VI convention), clips to the int16 range, rounds, and writes
+    `index.fill_value` where the pixel has no valid observation or the raw
+    value is non-finite.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        Raw float index values, shaped `(Y, X)`.
+    index : Index
+        The index these values belong to (supplies `scale_factor` and
+        `fill_value`).
+    all_nan_mask : numpy.ndarray
+        Boolean mask, shaped `(Y, X)` (see `compute_all_nan_mask`).
+
+    Returns
+    -------
+    numpy.ndarray
+        `int16` encoded values, shaped `(Y, X)`.
+    """
+    scaled = values / index.scale_factor
+    invalid = all_nan_mask | ~np.isfinite(scaled)
+    info = np.iinfo(np.int16)
+    clipped = np.clip(np.where(invalid, 0, scaled), info.min, info.max)
+    out = np.round(clipped).astype(np.int16)
+    out[invalid] = index.fill_value
+    return out
+
+
+def _composite_block(
+    reflectance: dict[BandSpec, np.ndarray],
+    fmask: np.ndarray,
+    dates: list[date],
+    start_date: date,
+    indices: list[Index] = ALL_INDICES,
+) -> dict[str, np.ndarray]:
+    """Composite one spatial block: the whole per-pixel pipeline, fused.
+
+    Runs entirely on in-memory numpy for a single spatial block holding the
+    full temporal stack: masks bad observations, selects the median-EVI2
+    timestep per pixel, then -- for each index, one at a time -- computes the
+    per-timestep index, takes the composite value at the selected timestep,
+    and the standard deviation across valid timesteps. Only one index's
+    temporal stack is materialized at a time, so peak memory stays bounded by
+    the reflectance stack plus a single index stack.
+
+    Parameters
+    ----------
+    reflectance : dict of BandSpec to numpy.ndarray
+        Reflectance band stacks (raw digital numbers), each shaped
+        `(T, Y, X)`, keyed by `BandSpec`. Must include every band referenced
+        by `indices` (via `SPEC_BY_BAND`) plus `RED`/`NIR_NARROW` for EVI2.
+    fmask : numpy.ndarray
+        Fmask QA band stack, shaped `(T, Y, X)`.
+    dates : list of datetime.date
+        Observation date per timestep, in `T`-axis order.
+    start_date : datetime.date
+        Reference date for the `DOY` output (see `relative_doy`).
+    indices : list of Index, optional
+        Indices to composite, by default `ALL_INDICES`.
+
+    Returns
+    -------
+    dict of str to numpy.ndarray
+        One `(Y, X)` array per output variable: `{index.name}` and
+        `{index.name}_std` (int16) for each index, plus `ValidCount` (uint8)
+        and `DOY` (uint8).
+    """
+    bad = compute_bad_pixel_mask(reflectance, fmask)
+    all_nan = compute_all_nan_mask(bad)
+    evi2 = compute_evi2(reflectance[RED], reflectance[NIR_NARROW])
+    best_idx = select_best_index(evi2, bad, all_nan)
+
+    out: dict[str, np.ndarray] = {}
+    for index in indices:
+        per_timestep = {
+            band: reflectance[SPEC_BY_BAND[band]].astype(np.float32)
+            * SPEC_BY_BAND[band].scale
+            for band in index.bands
+        }
+        stack = np.where(bad, np.nan, index(per_timestep))
+        value = np.take_along_axis(stack, best_idx[None, :, :], axis=0)[0]
+        with np.errstate(all="ignore"):
+            std = np.nanstd(stack, axis=0)
+        out[index.name] = _encode_index(value, index, all_nan)
+        out[f"{index.name}_std"] = _encode_index(std, index, all_nan)
+
+    out["ValidCount"] = valid_count(bad)
+    out["DOY"] = relative_doy(dates, best_idx, all_nan, start_date)
+    return out
 
 
 def _default_opener(url: str) -> np.ndarray:
