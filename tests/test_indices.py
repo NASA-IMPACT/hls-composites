@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from hls_composites.bands import Band
 from hls_composites.indices import (
     ALL_INDICES,
     EVI,
@@ -12,7 +13,6 @@ from hls_composites.indices import (
     NDWI,
     SAVI,
     TVI,
-    Band,
 )
 
 

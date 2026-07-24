@@ -5,18 +5,23 @@ from datetime import date as date_type
 import numpy as np
 import pytest
 
-from hls_composites.composite import (
+from hls_composites.bands import (
     BLUE,
     DEFAULT_BANDS,
     FMASK,
     GREEN,
     NIR_NARROW,
-    QA_BIT,
     QA_FILL,
     RED,
+    REFLECTANCE_BANDS,
+    SPEC_BY_BAND,
     SR_FILL,
     SWIR_1,
     SWIR_2,
+    Band,
+)
+from hls_composites.composite import (
+    QA_BIT,
     asset_url,
     band_std,
     build_composite,
@@ -88,8 +93,36 @@ def test_reflectance_bands_have_sr_fill_and_int16():
         assert band.dtype == np.int16
 
 
+def test_reflectance_bands_map_to_spectral_index_bands():
+    assert RED.index_band is Band.R
+    assert GREEN.index_band is Band.G
+    assert BLUE.index_band is Band.B
+    assert NIR_NARROW.index_band is Band.NIR
+    assert SWIR_1.index_band is Band.SWIR1
+    assert SWIR_2.index_band is Band.SWIR2
+
+
+def test_reflectance_bands_excludes_fmask():
+    assert REFLECTANCE_BANDS == [RED, GREEN, BLUE, NIR_NARROW, SWIR_1, SWIR_2]
+    assert FMASK not in REFLECTANCE_BANDS
+
+
+def test_spec_by_band_reverse_lookup():
+    assert SPEC_BY_BAND[Band.R] is RED
+    assert SPEC_BY_BAND[Band.NIR] is NIR_NARROW
+    assert set(SPEC_BY_BAND) == {
+        Band.B,
+        Band.G,
+        Band.R,
+        Band.NIR,
+        Band.SWIR1,
+        Band.SWIR2,
+    }
+
+
 def test_fmask_band_has_qa_fill_and_uint8():
     assert FMASK.is_reflectance is False
+    assert FMASK.index_band is None
     assert FMASK.nodata == QA_FILL
     assert FMASK.dtype == np.uint8
 

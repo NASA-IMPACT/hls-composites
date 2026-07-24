@@ -1,14 +1,21 @@
 """Composite creation: masking, median-EVI2 selection, aggregation."""
 
 import time
-from dataclasses import dataclass, field
 from datetime import date
 
 import numpy as np
 import rasterio as rio
 import xarray as xr
 
-from hls_composites.models import Granule, Satellite
+from hls_composites.bands import (
+    DEFAULT_BANDS,
+    FMASK,
+    NIR_NARROW,
+    QA_FILL,
+    RED,
+    BandSpec,
+)
+from hls_composites.models import Granule
 
 QA_BIT = {
     "cirrus": 0,
@@ -21,117 +28,8 @@ QA_BIT = {
     "aerosol_high": 7,
 }
 
-SR_SCALE = 0.0001
-SR_FILL = -9999
-QA_FILL = 255
 
-
-@dataclass(frozen=True)
-class Band:
-    """A logical composite band: its asset code and output encoding.
-
-    Parameters
-    ----------
-    name : str
-        Logical band name, e.g. `"red"` or `"Fmask"`. Used as the
-        output Dataset variable name.
-    is_reflectance : bool
-        Whether this is a reflectance band (gets a `{name}_std`
-        output and participates in masking) versus a QA band like
-        Fmask.
-    code : dict of Satellite to str
-        Per-satellite asset band code, e.g. `{"L30": "B05", "S30": "B8A"}`
-        (see `asset_url`).
-    nodata : int
-        Fill value for pixels with no valid observation.
-    dtype : type
-        numpy dtype the composite output is cast to.
-    valid_range : tuple of (int or None, int or None), optional
-        `(min, max)` valid values for this band's raw digital numbers,
-        checked *before* `scale` is applied (see `scale` below).
-        Observations outside this range are masked out (see
-        `compute_out_of_range_mask`). Either bound may be None to skip
-        that side of the check; the default `(None, None)` skips both
-        -- e.g. Fmask, whose values are QA bit flags, not a physical
-        quantity with a valid range.
-    scale : float, optional
-        Factor converting this band's raw digital numbers to physical
-        units, by default 1.0 (no scaling) -- e.g. Fmask, whose values
-        are QA bit flags, not a scaled physical quantity. Applied
-        *after* `valid_range` is checked, never before.
-    """
-
-    name: str
-    is_reflectance: bool
-    code: dict[Satellite, str] = field(compare=False)
-    nodata: int
-    dtype: type
-    valid_range: tuple[int | None, int | None] = (None, None)
-    scale: float = 1.0
-
-
-RED = Band(
-    "red",
-    True,
-    {"L30": "B04", "S30": "B04"},
-    nodata=SR_FILL,
-    dtype=np.int16,
-    valid_range=(0, None),
-    scale=SR_SCALE,
-)
-GREEN = Band(
-    "green",
-    True,
-    {"L30": "B03", "S30": "B03"},
-    nodata=SR_FILL,
-    dtype=np.int16,
-    valid_range=(0, None),
-    scale=SR_SCALE,
-)
-BLUE = Band(
-    "blue",
-    True,
-    {"L30": "B02", "S30": "B02"},
-    nodata=SR_FILL,
-    dtype=np.int16,
-    valid_range=(0, None),
-    scale=SR_SCALE,
-)
-NIR_NARROW = Band(
-    "nir_narrow",
-    True,
-    {"L30": "B05", "S30": "B8A"},
-    nodata=SR_FILL,
-    dtype=np.int16,
-    valid_range=(0, None),
-    scale=SR_SCALE,
-)
-SWIR_1 = Band(
-    "swir_1",
-    True,
-    {"L30": "B06", "S30": "B11"},
-    nodata=SR_FILL,
-    dtype=np.int16,
-    valid_range=(0, None),
-    scale=SR_SCALE,
-)
-SWIR_2 = Band(
-    "swir_2",
-    True,
-    {"L30": "B07", "S30": "B12"},
-    nodata=SR_FILL,
-    dtype=np.int16,
-    valid_range=(0, None),
-    scale=SR_SCALE,
-)
-FMASK = Band(
-    "Fmask", False, {"L30": "Fmask", "S30": "Fmask"}, nodata=QA_FILL, dtype=np.uint8
-)
-
-DEFAULT_BANDS: list[Band] = [RED, GREEN, BLUE, NIR_NARROW, SWIR_1, SWIR_2, FMASK]
-
-
-def asset_url(granule: Granule, band: Band) -> str:
+def asset_url(granule: Granule, band: BandSpec) -> str:
     """Build the S3 URI for one band asset of a granule.
 
     Parameters
@@ -150,7 +48,7 @@ def asset_url(granule: Granule, band: Band) -> str:
     return f"{granule.path}.{band_code}.tif"
 
 
-def compute_out_of_range_mask(bands: dict[Band, np.ndarray]) -> np.ndarray:
+def compute_out_of_range_mask(bands: dict[BandSpec, np.ndarray]) -> np.ndarray:
     """Flag observations outside each band's valid range, if any.
 
     Checked on raw digital numbers, before `Band.scale` is applied --
@@ -180,7 +78,9 @@ def compute_out_of_range_mask(bands: dict[Band, np.ndarray]) -> np.ndarray:
     return mask
 
 
-def compute_basic_mask(bands: dict[Band, np.ndarray], fmask: np.ndarray) -> np.ndarray:
+def compute_basic_mask(
+    bands: dict[BandSpec, np.ndarray], fmask: np.ndarray
+) -> np.ndarray:
     """Flag cloud, shadow, fill, and out-of-range observations.
 
     Parameters
@@ -206,7 +106,7 @@ def compute_basic_mask(bands: dict[Band, np.ndarray], fmask: np.ndarray) -> np.n
 
 
 def compute_bad_pixel_mask(
-    bands: dict[Band, np.ndarray], fmask: np.ndarray
+    bands: dict[BandSpec, np.ndarray], fmask: np.ndarray
 ) -> np.ndarray:
     """Flag observations excluded from compositing, aerosol included.
 
@@ -458,7 +358,7 @@ def read_band_with_retry(
 def build_composite(
     granules: list[Granule],
     start_date: date,
-    bands: list[Band] | None = None,
+    bands: list[BandSpec] | None = None,
     opener=_default_opener,
 ) -> xr.Dataset:
     """Build a cloud-free composite Dataset from a list of granules.

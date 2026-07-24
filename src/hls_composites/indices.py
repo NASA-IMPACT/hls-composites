@@ -10,22 +10,13 @@ the composite value and its temporal standard deviation.
 """
 
 from collections.abc import Mapping
-from enum import Enum, unique
 from typing import ClassVar
 
 import numpy as np
 
-BandData = Mapping["Band", np.ndarray]
+from hls_composites.bands import Band
 
-
-@unique
-class Band(Enum):
-    B = "B"
-    G = "G"
-    R = "R"
-    NIR = "NIR"
-    SWIR1 = "SWIR1"
-    SWIR2 = "SWIR2"
+BandData = Mapping[Band, np.ndarray]
 
 
 class Index:
