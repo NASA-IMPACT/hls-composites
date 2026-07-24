@@ -22,7 +22,9 @@ hls-composites = "hls_composites:main"
 [dependency-groups]
 dev = [
     "boto3-stubs[s3]>=1.35.0",
+    "mypy>=2.3.0",
     "pytest>=8.3.0",
+    "ruff>=0.16.0",
 ]
 
 [build-system]
