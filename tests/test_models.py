@@ -55,7 +55,9 @@ def _assert_full_coverage(date_range: DateRange) -> None:
     one_day = date.resolution
     while day <= date_range.end:
         key = _key(day)
-        assert any(key.startswith(p) for p in prefixes), f"{day} ({key}) not covered by {prefixes}"
+        assert any(key.startswith(p) for p in prefixes), (
+            f"{day} ({key}) not covered by {prefixes}"
+        )
         day += one_day
 
 

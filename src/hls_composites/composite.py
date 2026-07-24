@@ -1,36 +1,14 @@
 """Composite creation: masking, median-EVI2 selection, aggregation."""
 
 import time
+from dataclasses import dataclass, field
 from datetime import date
 
 import numpy as np
 import rasterio as rio
 import xarray as xr
 
-from hls_composites.models import Granule
-
-DEFAULT_BANDS = ["red", "green", "blue", "nir_narrow", "swir_1", "swir_2", "Fmask"]
-
-BAND_CODE: dict[str, dict[str, str]] = {
-    "L30": {
-        "red": "B04",
-        "green": "B03",
-        "blue": "B02",
-        "nir_narrow": "B05",
-        "swir_1": "B06",
-        "swir_2": "B07",
-        "Fmask": "Fmask",
-    },
-    "S30": {
-        "red": "B04",
-        "green": "B03",
-        "blue": "B02",
-        "nir_narrow": "B8A",
-        "swir_1": "B11",
-        "swir_2": "B12",
-        "Fmask": "Fmask",
-    },
-}
+from hls_composites.models import Granule, Satellite
 
 QA_BIT = {
     "cirrus": 0,
@@ -48,59 +26,167 @@ SR_FILL = -9999
 QA_FILL = 255
 
 
-def asset_url(granule: Granule, band: str) -> str:
+@dataclass(frozen=True)
+class Band:
+    """A logical composite band: its asset code and output encoding.
+
+    Parameters
+    ----------
+    name : str
+        Logical band name, e.g. `"red"` or `"Fmask"`. Used as the
+        output Dataset variable name.
+    is_reflectance : bool
+        Whether this is a reflectance band (gets a `{name}_std`
+        output and participates in masking) versus a QA band like
+        Fmask.
+    code : dict of Satellite to str
+        Per-satellite asset band code, e.g. `{"L30": "B05", "S30": "B8A"}`
+        (see `asset_url`).
+    nodata : int
+        Fill value for pixels with no valid observation.
+    dtype : type
+        numpy dtype the composite output is cast to.
+    valid_range : tuple of (int or None, int or None), optional
+        `(min, max)` valid values for this band's raw digital numbers,
+        checked *before* `scale` is applied (see `scale` below).
+        Observations outside this range are masked out (see
+        `compute_out_of_range_mask`). Either bound may be None to skip
+        that side of the check; the default `(None, None)` skips both
+        -- e.g. Fmask, whose values are QA bit flags, not a physical
+        quantity with a valid range.
+    scale : float, optional
+        Factor converting this band's raw digital numbers to physical
+        units, by default 1.0 (no scaling) -- e.g. Fmask, whose values
+        are QA bit flags, not a scaled physical quantity. Applied
+        *after* `valid_range` is checked, never before.
+    """
+
+    name: str
+    is_reflectance: bool
+    code: dict[Satellite, str] = field(compare=False)
+    nodata: int
+    dtype: type
+    valid_range: tuple[int | None, int | None] = (None, None)
+    scale: float = 1.0
+
+
+RED = Band(
+    "red",
+    True,
+    {"L30": "B04", "S30": "B04"},
+    nodata=SR_FILL,
+    dtype=np.int16,
+    valid_range=(0, None),
+    scale=SR_SCALE,
+)
+GREEN = Band(
+    "green",
+    True,
+    {"L30": "B03", "S30": "B03"},
+    nodata=SR_FILL,
+    dtype=np.int16,
+    valid_range=(0, None),
+    scale=SR_SCALE,
+)
+BLUE = Band(
+    "blue",
+    True,
+    {"L30": "B02", "S30": "B02"},
+    nodata=SR_FILL,
+    dtype=np.int16,
+    valid_range=(0, None),
+    scale=SR_SCALE,
+)
+NIR_NARROW = Band(
+    "nir_narrow",
+    True,
+    {"L30": "B05", "S30": "B8A"},
+    nodata=SR_FILL,
+    dtype=np.int16,
+    valid_range=(0, None),
+    scale=SR_SCALE,
+)
+SWIR_1 = Band(
+    "swir_1",
+    True,
+    {"L30": "B06", "S30": "B11"},
+    nodata=SR_FILL,
+    dtype=np.int16,
+    valid_range=(0, None),
+    scale=SR_SCALE,
+)
+SWIR_2 = Band(
+    "swir_2",
+    True,
+    {"L30": "B07", "S30": "B12"},
+    nodata=SR_FILL,
+    dtype=np.int16,
+    valid_range=(0, None),
+    scale=SR_SCALE,
+)
+FMASK = Band(
+    "Fmask", False, {"L30": "Fmask", "S30": "Fmask"}, nodata=QA_FILL, dtype=np.uint8
+)
+
+DEFAULT_BANDS: list[Band] = [RED, GREEN, BLUE, NIR_NARROW, SWIR_1, SWIR_2, FMASK]
+
+
+def asset_url(granule: Granule, band: Band) -> str:
     """Build the S3 URI for one band asset of a granule.
 
     Parameters
     ----------
     granule : Granule
         Granule to build the asset URL for.
-    band : str
-        Logical band name, e.g. `"red"` or `"nir_narrow"` (see
-        `BAND_CODE` for valid names).
+    band : Band
+        Band to build the asset URL for.
 
     Returns
     -------
     str
         Full S3 URI of the band's GeoTIFF asset.
     """
-    band_code = BAND_CODE[granule.satellite][band]
+    band_code = band.code[granule.satellite]
     return f"{granule.path}.{band_code}.tif"
 
 
-_NEGATIVE_CHECK_BANDS = ("red", "nir_narrow", "blue", "green", "swir_1", "swir_2")
+def compute_out_of_range_mask(bands: dict[Band, np.ndarray]) -> np.ndarray:
+    """Flag observations outside each band's valid range, if any.
 
-
-def compute_negative_mask(bands: dict[str, np.ndarray]) -> np.ndarray:
-    """Flag observations with a negative reflectance value.
+    Checked on raw digital numbers, before `Band.scale` is applied --
+    `valid_range` is expressed in the same units as the raw data.
 
     Parameters
     ----------
-    bands : dict of str to numpy.ndarray
-        Reflectance band stacks, each shaped `(T, Y, X)`. Must include
-        `"red"`, `"nir_narrow"`, `"blue"`, `"green"`, `"swir_1"`, and
-        `"swir_2"`.
+    bands : dict of Band to numpy.ndarray
+        Band stacks, each shaped `(T, Y, X)`, keyed by the `Band` they
+        belong to. Bands with `valid_range=(None, None)` (see `Band`,
+        the default) are not checked.
 
     Returns
     -------
     numpy.ndarray
         Boolean mask, shaped `(T, Y, X)`, True where any checked band
-        is negative.
+        is outside its `valid_range`.
     """
-    mask = np.zeros_like(bands["red"], dtype=bool)
-    for band in _NEGATIVE_CHECK_BANDS:
-        mask |= bands[band] < 0
+    template = next(iter(bands.values()))
+    mask = np.zeros_like(template, dtype=bool)
+    for band, arr in bands.items():
+        lo, hi = band.valid_range
+        if lo is not None:
+            mask |= arr < lo
+        if hi is not None:
+            mask |= arr > hi
     return mask
 
 
-def compute_basic_mask(bands: dict[str, np.ndarray], fmask: np.ndarray) -> np.ndarray:
-    """Flag cloud, shadow, fill, and negative-value observations.
+def compute_basic_mask(bands: dict[Band, np.ndarray], fmask: np.ndarray) -> np.ndarray:
+    """Flag cloud, shadow, fill, and out-of-range observations.
 
     Parameters
     ----------
-    bands : dict of str to numpy.ndarray
-        Reflectance band stacks, each shaped `(T, Y, X)` (see
-        `compute_negative_mask`).
+    bands : dict of Band to numpy.ndarray
+        Band stacks, each shaped `(T, Y, X)` (see `compute_out_of_range_mask`).
     fmask : numpy.ndarray
         Fmask QA band stack, shaped `(T, Y, X)`.
 
@@ -108,17 +194,20 @@ def compute_basic_mask(bands: dict[str, np.ndarray], fmask: np.ndarray) -> np.nd
     -------
     numpy.ndarray
         Boolean mask, shaped `(T, Y, X)`, True where an observation is
-        cloud, adjacent-cloud, cloud-shadow, fill, or negative-valued.
+        cloud, adjacent-cloud, cloud-shadow, fill, or outside a band's
+        valid range.
     """
     cloud = (fmask & (1 << QA_BIT["cloud"])) > 0
     adj_cloud = (fmask & (1 << QA_BIT["adj_cloud"])) > 0
     cloud_shadow = (fmask & (1 << QA_BIT["cloud_shadow"])) > 0
     fill = fmask == QA_FILL
-    negative = compute_negative_mask(bands)
-    return cloud | adj_cloud | cloud_shadow | fill | negative
+    out_of_range = compute_out_of_range_mask(bands)
+    return cloud | adj_cloud | cloud_shadow | fill | out_of_range
 
 
-def compute_bad_pixel_mask(bands: dict[str, np.ndarray], fmask: np.ndarray) -> np.ndarray:
+def compute_bad_pixel_mask(
+    bands: dict[Band, np.ndarray], fmask: np.ndarray
+) -> np.ndarray:
     """Flag observations excluded from compositing, aerosol included.
 
     Extends `compute_basic_mask` with a conditional high-aerosol rule: a
@@ -128,9 +217,8 @@ def compute_bad_pixel_mask(bands: dict[str, np.ndarray], fmask: np.ndarray) -> n
 
     Parameters
     ----------
-    bands : dict of str to numpy.ndarray
-        Reflectance band stacks, each shaped `(T, Y, X)` (see
-        `compute_negative_mask`).
+    bands : dict of Band to numpy.ndarray
+        Band stacks, each shaped `(T, Y, X)` (see `compute_out_of_range_mask`).
     fmask : numpy.ndarray
         Fmask QA band stack, shaped `(T, Y, X)`.
 
@@ -182,8 +270,8 @@ def compute_evi2(red: np.ndarray, nir: np.ndarray) -> np.ndarray:
     numpy.ndarray
         EVI2 values, same shape as `red`, as `float32`.
     """
-    red_r = red.astype(np.float32) * SR_SCALE
-    nir_r = nir.astype(np.float32) * SR_SCALE
+    red_r = red.astype(np.float32) * RED.scale
+    nir_r = nir.astype(np.float32) * NIR_NARROW.scale
     return 2.5 * (nir_r - red_r) / (nir_r + 2.4 * red_r + 1)
 
 
@@ -370,7 +458,7 @@ def read_band_with_retry(
 def build_composite(
     granules: list[Granule],
     start_date: date,
-    bands: list[str] | None = None,
+    bands: list[Band] | None = None,
     opener=_default_opener,
 ) -> xr.Dataset:
     """Build a cloud-free composite Dataset from a list of granules.
@@ -388,9 +476,8 @@ def build_composite(
     start_date : datetime.date
         Reference date for the output `DOY` variable (see
         `relative_doy`).
-    bands : list of str or None, optional
-        Logical band names to include (see `BAND_CODE`), defaulting to
-        `DEFAULT_BANDS` when None.
+    bands : list of Band or None, optional
+        Bands to include, defaulting to `DEFAULT_BANDS` when None.
     opener : callable, optional
         Function taking a URL and returning a 2D array, passed through
         to `read_band_with_retry`. Overridable for testing.
@@ -398,8 +485,8 @@ def build_composite(
     Returns
     -------
     xarray.Dataset
-        One variable per band (composite value), `{band}_std` for each
-        non-Fmask band, plus `ValidCount` and `DOY`.
+        One variable per band (composite value), `{band.name}_std` for
+        each reflectance band, plus `ValidCount` and `DOY`.
 
     Raises
     ------
@@ -410,35 +497,36 @@ def build_composite(
         raise ValueError("build_composite requires at least one granule")
     if bands is None:
         bands = DEFAULT_BANDS
-    reflectance_bands = [b for b in bands if b != "Fmask"]
+    reflectance_bands = [b for b in bands if b.is_reflectance]
 
     raw: dict[str, np.ndarray] = {}
     for band in bands:
         urls = [asset_url(g, band) for g in granules]
-        raw[band] = np.stack(
+        raw[band.name] = np.stack(
             [read_band_with_retry(u, opener=opener) for u in urls], axis=0
         )
 
-    fmask = raw["Fmask"]
-    reflectance_arrays = {b: raw[b] for b in reflectance_bands}
+    fmask = raw[FMASK.name]
+    reflectance_arrays = {b: raw[b.name] for b in reflectance_bands}
 
     bad_pixel_mask = compute_bad_pixel_mask(reflectance_arrays, fmask)
     all_nan_mask = compute_all_nan_mask(bad_pixel_mask)
-    evi2 = compute_evi2(raw["red"], raw["nir_narrow"])
+    evi2 = compute_evi2(raw[RED.name], raw[NIR_NARROW.name])
     best_idx = select_best_index(evi2, bad_pixel_mask, all_nan_mask)
 
     data_vars: dict[str, tuple] = {}
     for band in bands:
-        nodata = QA_FILL if band == "Fmask" else SR_FILL
-        dtype = np.uint8 if band == "Fmask" else np.int16
-        composite = composite_band(raw[band], best_idx, all_nan_mask, nodata).astype(dtype)
-        data_vars[band] = (("y", "x"), composite)
-        if band != "Fmask":
-            std = band_std(raw[band], bad_pixel_mask, all_nan_mask)
-            data_vars[f"{band}_std"] = (("y", "x"), np.round(std).astype(np.int16))
+        composite = composite_band(raw[band.name], best_idx, all_nan_mask, band.nodata)
+        data_vars[band.name] = (("y", "x"), composite.astype(band.dtype))
+        if band.is_reflectance:
+            std = band_std(raw[band.name], bad_pixel_mask, all_nan_mask)
+            data_vars[f"{band.name}_std"] = (("y", "x"), np.round(std).astype(np.int16))
 
     data_vars["ValidCount"] = (("y", "x"), valid_count(bad_pixel_mask))
     dates = [g.date for g in granules]
-    data_vars["DOY"] = (("y", "x"), relative_doy(dates, best_idx, all_nan_mask, start_date))
+    data_vars["DOY"] = (
+        ("y", "x"),
+        relative_doy(dates, best_idx, all_nan_mask, start_date),
+    )
 
     return xr.Dataset(data_vars)

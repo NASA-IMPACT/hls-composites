@@ -1,6 +1,10 @@
 from datetime import date
 
-from hls_composites.discovery import list_common_prefixes, parse_granule_common_prefix, scan_bucket_for_granules
+from hls_composites.discovery import (
+    list_common_prefixes,
+    parse_granule_common_prefix,
+    scan_bucket_for_granules,
+)
 from hls_composites.models import DateRange
 
 
@@ -111,7 +115,9 @@ def test_scan_bucket_for_granules_filters_to_exact_month():
     paginator = _MultiCallFakePaginator(pages_by_prefix)
     client = _MultiCallFakeS3Client(paginator)
 
-    granules = scan_bucket_for_granules(client, "lp-prod-protected", "18SUJ", date_range, satellites=("L30",))
+    granules = scan_bucket_for_granules(
+        client, "lp-prod-protected", "18SUJ", date_range, satellites=("L30",)
+    )
 
     assert sorted(g.date for g in granules) == [date(2020, 1, 1), date(2020, 1, 31)]
     assert all(g.satellite == "L30" for g in granules)
@@ -128,7 +134,9 @@ def test_scan_bucket_for_granules_queries_both_satellites_by_default():
     }
     client = _MultiCallFakeS3Client(_MultiCallFakePaginator(pages_by_prefix))
 
-    granules = scan_bucket_for_granules(client, "lp-prod-protected", "18SUJ", date_range)
+    granules = scan_bucket_for_granules(
+        client, "lp-prod-protected", "18SUJ", date_range
+    )
 
     assert {g.satellite for g in granules} == {"L30", "S30"}
     assert len(granules) == 2
@@ -138,6 +146,8 @@ def test_scan_bucket_for_granules_returns_empty_list_when_nothing_found():
     date_range = DateRange(start=date(2020, 1, 1), end=date(2020, 1, 5))
     client = _MultiCallFakeS3Client(_MultiCallFakePaginator({}))
 
-    granules = scan_bucket_for_granules(client, "lp-prod-protected", "18SUJ", date_range)
+    granules = scan_bucket_for_granules(
+        client, "lp-prod-protected", "18SUJ", date_range
+    )
 
     assert granules == []

@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import date
 from datetime import date as date_type
 
@@ -5,10 +6,17 @@ import numpy as np
 import pytest
 
 from hls_composites.composite import (
+    BLUE,
     DEFAULT_BANDS,
+    FMASK,
+    GREEN,
+    NIR_NARROW,
     QA_BIT,
     QA_FILL,
+    RED,
     SR_FILL,
+    SWIR_1,
+    SWIR_2,
     asset_url,
     band_std,
     build_composite,
@@ -17,7 +25,7 @@ from hls_composites.composite import (
     compute_bad_pixel_mask,
     compute_basic_mask,
     compute_evi2,
-    compute_negative_mask,
+    compute_out_of_range_mask,
     read_band_with_retry,
     relative_doy,
     select_best_index,
@@ -35,11 +43,23 @@ def _granule(satellite: str) -> Granule:
 
 
 def test_default_bands_matches_prototype():
-    assert DEFAULT_BANDS == ["red", "green", "blue", "nir_narrow", "swir_1", "swir_2", "Fmask"]
+    assert DEFAULT_BANDS == [RED, GREEN, BLUE, NIR_NARROW, SWIR_1, SWIR_2, FMASK]
+
+
+def test_default_bands_names_match_prototype():
+    assert [b.name for b in DEFAULT_BANDS] == [
+        "red",
+        "green",
+        "blue",
+        "nir_narrow",
+        "swir_1",
+        "swir_2",
+        "Fmask",
+    ]
 
 
 def test_asset_url_l30_red_band():
-    url = asset_url(_granule("L30"), "red")
+    url = asset_url(_granule("L30"), RED)
     assert url == (
         "s3://lp-prod-protected/HLSL30.020/HLS.L30.T55HDT.2026151T235621.v2.0/"
         "HLS.L30.T55HDT.2026151T235621.v2.0.B04.tif"
@@ -47,33 +67,70 @@ def test_asset_url_l30_red_band():
 
 
 def test_asset_url_s30_nir_narrow_uses_b8a():
-    url = asset_url(_granule("S30"), "nir_narrow")
+    url = asset_url(_granule("S30"), NIR_NARROW)
     assert url.endswith(".B8A.tif")
 
 
 def test_asset_url_l30_nir_narrow_uses_b05():
-    url = asset_url(_granule("L30"), "nir_narrow")
+    url = asset_url(_granule("L30"), NIR_NARROW)
     assert url.endswith(".B05.tif")
 
 
 def test_asset_url_fmask_same_code_both_satellites():
-    assert asset_url(_granule("L30"), "Fmask").endswith(".Fmask.tif")
-    assert asset_url(_granule("S30"), "Fmask").endswith(".Fmask.tif")
+    assert asset_url(_granule("L30"), FMASK).endswith(".Fmask.tif")
+    assert asset_url(_granule("S30"), FMASK).endswith(".Fmask.tif")
 
 
-def _clear_bands(t: int, y: int, x: int) -> dict[str, np.ndarray]:
+def test_reflectance_bands_have_sr_fill_and_int16():
+    for band in (RED, GREEN, BLUE, NIR_NARROW, SWIR_1, SWIR_2):
+        assert band.is_reflectance is True
+        assert band.nodata == SR_FILL
+        assert band.dtype == np.int16
+
+
+def test_fmask_band_has_qa_fill_and_uint8():
+    assert FMASK.is_reflectance is False
+    assert FMASK.nodata == QA_FILL
+    assert FMASK.dtype == np.uint8
+
+
+def _clear_bands(t: int, y: int, x: int) -> dict:
     return {
         band: np.full((t, y, x), 1000, dtype=np.int16)
-        for band in ("red", "green", "blue", "nir_narrow", "swir_1", "swir_2")
+        for band in (RED, GREEN, BLUE, NIR_NARROW, SWIR_1, SWIR_2)
     }
 
 
-def test_negative_mask_flags_any_negative_band():
+def test_out_of_range_mask_flags_any_negative_band():
     bands = _clear_bands(2, 1, 1)
-    bands["red"][0, 0, 0] = -100
-    mask = compute_negative_mask(bands)
+    bands[RED][0, 0, 0] = -100
+    mask = compute_out_of_range_mask(bands)
     assert mask[0, 0, 0] == True
     assert mask[1, 0, 0] == False
+
+
+def test_out_of_range_mask_skips_bands_with_no_valid_range():
+    # FMASK has valid_range=(None, None) -- a negative value there must not be flagged.
+    bands = {
+        RED: np.full((1, 1, 1), 1000, dtype=np.int16),
+        FMASK: np.full((1, 1, 1), -1, dtype=np.int16),
+    }
+    mask = compute_out_of_range_mask(bands)
+    assert mask[0, 0, 0] == False
+
+
+def test_out_of_range_mask_flags_values_above_max():
+    values = np.array([[[500]], [[2000]]], dtype=np.int16)
+
+    # RED's default valid_range is (0, None) -- no upper bound, so 2000 passes.
+    assert compute_out_of_range_mask({RED: values})[0, 0, 0] == False
+    assert compute_out_of_range_mask({RED: values})[1, 0, 0] == False
+
+    # A band with an explicit upper bound flags values above it.
+    capped_band = dataclasses.replace(RED, valid_range=(0, 1000))
+    mask = compute_out_of_range_mask({capped_band: values})
+    assert mask[0, 0, 0] == False
+    assert mask[1, 0, 0] == True
 
 
 def test_basic_mask_flags_cloud_bit():
@@ -106,7 +163,7 @@ def test_bad_pixel_mask_excludes_high_aerosol_when_alternative_exists():
         [[[high_aerosol_bits]], [[low_mod_bits]], [[high_aerosol_bits]]], dtype=np.uint8
     )
     mask = compute_bad_pixel_mask(bands, fmask)
-    assert mask[0, 0, 0] == True   # high aerosol, alternative exists -> excluded
+    assert mask[0, 0, 0] == True  # high aerosol, alternative exists -> excluded
     assert mask[1, 0, 0] == False  # the low/mod alternative itself -> kept
     assert mask[2, 0, 0] == True
 
@@ -208,7 +265,9 @@ def test_relative_doy_uses_chosen_observations_date():
     dates = [date_type(2020, 1, 1), date_type(2020, 1, 10), date_type(2020, 1, 20)]
     best_idx = np.array([[1]], dtype=np.int16)  # Jan 10
     all_nan_mask = np.zeros((1, 1), dtype=bool)
-    result = relative_doy(dates, best_idx, all_nan_mask, start_date=date_type(2020, 1, 1))
+    result = relative_doy(
+        dates, best_idx, all_nan_mask, start_date=date_type(2020, 1, 1)
+    )
     assert result[0, 0] == 10  # Jan 10 is DOY 10, start is DOY 1: 10 - 1 + 1 = 10
 
 
@@ -216,7 +275,9 @@ def test_relative_doy_all_masked_pixel_is_zero():
     dates = [date_type(2020, 1, 1), date_type(2020, 1, 10)]
     best_idx = np.array([[0]], dtype=np.int16)
     all_nan_mask = np.ones((1, 1), dtype=bool)
-    result = relative_doy(dates, best_idx, all_nan_mask, start_date=date_type(2020, 1, 1))
+    result = relative_doy(
+        dates, best_idx, all_nan_mask, start_date=date_type(2020, 1, 1)
+    )
     assert result[0, 0] == 0
 
 
@@ -239,7 +300,7 @@ def test_read_band_with_retry_succeeds_after_transient_failures(monkeypatch):
     def opener(url):
         attempts["count"] += 1
         if attempts["count"] < 3:
-            raise IOError("transient")
+            raise OSError("transient")
         return np.array([[1]])
 
     result = read_band_with_retry("s3://x/y.tif", max_retries=3, opener=opener)
@@ -251,12 +312,12 @@ def test_read_band_with_retry_raises_after_exhausting_retries(monkeypatch):
     monkeypatch.setattr("hls_composites.composite.time.sleep", lambda _: None)
 
     def opener(url):
-        raise IOError("permanent failure")
+        raise OSError("permanent failure")
 
     try:
         read_band_with_retry("s3://x/y.tif", max_retries=2, opener=opener)
         assert False, "expected IOError"
-    except IOError as e:
+    except OSError as e:
         assert "permanent failure" in str(e)
 
 
@@ -277,19 +338,31 @@ def test_build_composite_end_to_end_with_synthetic_reader():
     fmask_cloud = 1 << QA_BIT["cloud"]
 
     band_data = {
-        "s3://bucket/g0.B04.tif": np.array([[1000, 1000], [1000, 1000]], dtype=np.int16),  # red
+        "s3://bucket/g0.B04.tif": np.array(
+            [[1000, 1000], [1000, 1000]], dtype=np.int16
+        ),  # red
         "s3://bucket/g0.B03.tif": np.full((2, 2), clear_value, dtype=np.int16),  # green
         "s3://bucket/g0.B02.tif": np.full((2, 2), clear_value, dtype=np.int16),  # blue
-        "s3://bucket/g0.B05.tif": np.array([[3000, 3000], [3000, 3000]], dtype=np.int16),  # nir_narrow
-        "s3://bucket/g0.B06.tif": np.full((2, 2), clear_value, dtype=np.int16),  # swir_1
-        "s3://bucket/g0.B07.tif": np.full((2, 2), clear_value, dtype=np.int16),  # swir_2
+        "s3://bucket/g0.B05.tif": np.array(
+            [[3000, 3000], [3000, 3000]], dtype=np.int16
+        ),  # nir_narrow
+        "s3://bucket/g0.B06.tif": np.full(
+            (2, 2), clear_value, dtype=np.int16
+        ),  # swir_1
+        "s3://bucket/g0.B07.tif": np.full(
+            (2, 2), clear_value, dtype=np.int16
+        ),  # swir_2
         "s3://bucket/g0.Fmask.tif": np.array(
             [[fmask_clear, fmask_cloud], [fmask_cloud, fmask_cloud]], dtype=np.uint8
         ),
-        "s3://bucket/g1.B04.tif": np.array([[1100, 1100], [1100, 1100]], dtype=np.int16),
+        "s3://bucket/g1.B04.tif": np.array(
+            [[1100, 1100], [1100, 1100]], dtype=np.int16
+        ),
         "s3://bucket/g1.B03.tif": np.full((2, 2), clear_value, dtype=np.int16),
         "s3://bucket/g1.B02.tif": np.full((2, 2), clear_value, dtype=np.int16),
-        "s3://bucket/g1.B05.tif": np.array([[3200, 3200], [3200, 3200]], dtype=np.int16),
+        "s3://bucket/g1.B05.tif": np.array(
+            [[3200, 3200], [3200, 3200]], dtype=np.int16
+        ),
         "s3://bucket/g1.B06.tif": np.full((2, 2), clear_value, dtype=np.int16),
         "s3://bucket/g1.B07.tif": np.full((2, 2), clear_value, dtype=np.int16),
         "s3://bucket/g1.Fmask.tif": np.array(
@@ -303,7 +376,7 @@ def test_build_composite_end_to_end_with_synthetic_reader():
     result = build_composite(
         granules,
         start_date=date(2020, 1, 1),
-        bands=["red", "green", "blue", "nir_narrow", "swir_1", "swir_2", "Fmask"],
+        bands=[RED, GREEN, BLUE, NIR_NARROW, SWIR_1, SWIR_2, FMASK],
         opener=fake_opener,
     )
 

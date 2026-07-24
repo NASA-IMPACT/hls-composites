@@ -45,7 +45,7 @@ class DateRange:
     """
 
     start: date  # inclusive
-    end: date    # inclusive
+    end: date  # inclusive
 
     def __post_init__(self) -> None:
         if self.start > self.end:
