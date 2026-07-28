@@ -1,11 +1,16 @@
 """Composite creation: masking, median-EVI2 selection, aggregation."""
 
 import time
+from collections.abc import Callable
 from datetime import date
+from typing import TypeVar
 
 import numpy as np
 import rasterio as rio
+import rioxarray
 import xarray as xr
+
+_ReadResult = TypeVar("_ReadResult")
 
 from hls_composites.bands import (
     DEFAULT_BANDS,
@@ -415,8 +420,10 @@ def read_band_with_retry(
     url: str,
     max_retries: int = 3,
     delay: float = 3.0,
-    opener=_default_opener,
-) -> np.ndarray:
+    # mypy can't reconcile a concrete default with a generic param; the default
+    # simply binds _ReadResult to np.ndarray.
+    opener: Callable[[str], _ReadResult] = _default_opener,  # type: ignore[assignment]
+) -> _ReadResult:
     """Read one band asset, retrying transient failures.
 
     Parameters
@@ -454,18 +461,80 @@ def read_band_with_retry(
     raise last_error
 
 
+BLOCK_SIZE = 512  # HLS COG native internal tiling; the spatial chunk we fuse over
+
+
+def _default_da_opener(url: str) -> xr.DataArray:
+    """Open one band asset lazily, chunked to the HLS native block size.
+
+    Parameters
+    ----------
+    url : str
+        S3 or local URL of the band's GeoTIFF asset (see `asset_url`).
+
+    Returns
+    -------
+    xarray.DataArray
+        Lazy, dask-backed `(y, x)` array chunked at `BLOCK_SIZE`, carrying
+        the raster's CRS/transform via the `rio` accessor.
+    """
+    array = rioxarray.open_rasterio(
+        url, chunks={"x": BLOCK_SIZE, "y": BLOCK_SIZE}, lock=False
+    )
+    # open_rasterio's return type spans DataArray/Dataset/list; a single-asset
+    # COG always yields a DataArray.
+    assert isinstance(array, xr.DataArray)
+    if "band" in array.dims:
+        array = array.squeeze("band", drop=True)
+    return array
+
+
+def _map_block_kernel(
+    ds_block: xr.Dataset,
+    *,
+    dates: list[date],
+    start_date: date,
+    indices: list[Index],
+    bands: list[BandSpec],
+) -> xr.Dataset:
+    """Run `_composite_block` on one spatial block, wrapped for `xr.map_blocks`.
+
+    Receives an in-memory `Dataset` block (one spatial chunk, full time axis),
+    delegates the numpy pipeline to `_composite_block`, and re-wraps the
+    outputs into a `Dataset` that reuses the block's `(y, x)` coords (and thus
+    its CRS/transform).
+    """
+    reflectance = {b: ds_block[b.name].values for b in bands if b.is_reflectance}
+    fmask = ds_block[FMASK.name].values
+    out = _composite_block(reflectance, fmask, dates, start_date, indices)
+    # Carry every non-temporal coord through (y, x, and the CRS's spatial_ref)
+    # so the returned block matches the template map_blocks validates against.
+    coords = {
+        name: coord
+        for name, coord in ds_block.coords.items()
+        if "time" not in coord.dims
+    }
+    return xr.Dataset(
+        {name: (("y", "x"), array) for name, array in out.items()},
+        coords=coords,
+    )
+
+
 def build_composite(
     granules: list[Granule],
     start_date: date,
     bands: list[BandSpec] | None = None,
-    opener=_default_opener,
+    indices: list[Index] | None = None,
+    opener=_default_da_opener,
 ) -> xr.Dataset:
-    """Build a cloud-free composite Dataset from a list of granules.
+    """Build a lazy spectral-index composite Dataset from a list of granules.
 
-    Reads each band across all granules, masks bad pixels (cloud,
-    shadow, aerosol), picks the per-pixel observation closest to the
-    median EVI2, and aggregates the result plus std/ValidCount/DOY into
-    a single Dataset.
+    Reads each band across all granules lazily (dask-chunked at the HLS native
+    block size), then applies the entire masking / median-EVI2 selection /
+    per-index aggregation pipeline as a single fused `xr.map_blocks` kernel per
+    spatial block (see `_composite_block`). The returned Dataset is lazy;
+    computation streams block-by-block when it is written or `.compute()`-ed,
+    keeping memory bounded to roughly one block's temporal stack.
 
     Parameters
     ----------
@@ -473,19 +542,21 @@ def build_composite(
         Granules to composite, typically from `scan_bucket_for_granules`.
         Must be non-empty.
     start_date : datetime.date
-        Reference date for the output `DOY` variable (see
-        `relative_doy`).
-    bands : list of Band or None, optional
-        Bands to include, defaulting to `DEFAULT_BANDS` when None.
+        Reference date for the output `DOY` variable (see `relative_doy`).
+    bands : list of BandSpec or None, optional
+        Reflectance + QA bands to read, defaulting to `DEFAULT_BANDS` when None.
+    indices : list of Index or None, optional
+        Spectral indices to composite, defaulting to `ALL_INDICES` when None.
     opener : callable, optional
-        Function taking a URL and returning a 2D array, passed through
-        to `read_band_with_retry`. Overridable for testing.
+        Function taking a URL and returning a lazy `(y, x)` DataArray, passed
+        through to `read_band_with_retry`. Overridable for testing.
 
     Returns
     -------
     xarray.Dataset
-        One variable per band (composite value), `{band.name}_std` for
-        each reflectance band, plus `ValidCount` and `DOY`.
+        Lazy Dataset with `{index.name}` and `{index.name}_std` (int16) per
+        index, plus `ValidCount` and `DOY` (uint8), carrying the granules'
+        CRS/transform.
 
     Raises
     ------
@@ -496,36 +567,37 @@ def build_composite(
         raise ValueError("build_composite requires at least one granule")
     if bands is None:
         bands = DEFAULT_BANDS
-    reflectance_bands = [b for b in bands if b.is_reflectance]
+    if indices is None:
+        indices = ALL_INDICES
 
-    raw: dict[str, np.ndarray] = {}
+    data_vars: dict[str, xr.DataArray] = {}
     for band in bands:
-        urls = [asset_url(g, band) for g in granules]
-        raw[band.name] = np.stack(
-            [read_band_with_retry(u, opener=opener) for u in urls], axis=0
-        )
-
-    fmask = raw[FMASK.name]
-    reflectance_arrays = {b: raw[b.name] for b in reflectance_bands}
-
-    bad_pixel_mask = compute_bad_pixel_mask(reflectance_arrays, fmask)
-    all_nan_mask = compute_all_nan_mask(bad_pixel_mask)
-    evi2 = compute_evi2(raw[RED.name], raw[NIR_NARROW.name])
-    best_idx = select_best_index(evi2, bad_pixel_mask, all_nan_mask)
-
-    data_vars: dict[str, tuple] = {}
-    for band in bands:
-        composite = composite_band(raw[band.name], best_idx, all_nan_mask, band.nodata)
-        data_vars[band.name] = (("y", "x"), composite.astype(band.dtype))
-        if band.is_reflectance:
-            std = band_std(raw[band.name], bad_pixel_mask, all_nan_mask)
-            data_vars[f"{band.name}_std"] = (("y", "x"), np.round(std).astype(np.int16))
-
-    data_vars["ValidCount"] = (("y", "x"), valid_count(bad_pixel_mask))
-    dates = [g.date for g in granules]
-    data_vars["DOY"] = (
-        ("y", "x"),
-        relative_doy(dates, best_idx, all_nan_mask, start_date),
+        arrays = [
+            read_band_with_retry(asset_url(g, band), opener=opener) for g in granules
+        ]
+        data_vars[band.name] = xr.concat(arrays, dim="time")
+    stacked = xr.Dataset(data_vars).chunk(
+        {"time": -1, "y": BLOCK_SIZE, "x": BLOCK_SIZE}
     )
 
-    return xr.Dataset(data_vars)
+    template2d = stacked[FMASK.name].isel(time=0, drop=True)
+    template_vars: dict[str, xr.DataArray] = {}
+    for index in indices:
+        template_vars[index.name] = xr.zeros_like(template2d, dtype=np.int16)
+        template_vars[f"{index.name}_std"] = xr.zeros_like(template2d, dtype=np.int16)
+    template_vars["ValidCount"] = xr.zeros_like(template2d, dtype=np.uint8)
+    template_vars["DOY"] = xr.zeros_like(template2d, dtype=np.uint8)
+    template = xr.Dataset(template_vars)
+
+    dates = [g.date for g in granules]
+    return xr.map_blocks(
+        _map_block_kernel,
+        stacked,
+        kwargs={
+            "dates": dates,
+            "start_date": start_date,
+            "indices": indices,
+            "bands": bands,
+        },
+        template=template,
+    )
