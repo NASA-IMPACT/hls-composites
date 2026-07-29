@@ -590,7 +590,7 @@ def build_composite(
     template = xr.Dataset(template_vars)
 
     dates = [g.date for g in granules]
-    return xr.map_blocks(
+    composite = xr.map_blocks(
         _map_block_kernel,
         stacked,
         kwargs={
@@ -601,3 +601,11 @@ def build_composite(
         },
         template=template,
     )
+
+    # Self-describe each index var's nodata/scale so the writer stays generic.
+    # ValidCount/DOY carry neither (no nodata sentinel, unit scale).
+    for index in indices:
+        for name in (index.name, f"{index.name}_std"):
+            composite[name].attrs["nodata"] = index.fill_value
+            composite[name].attrs["scale_factor"] = index.scale_factor
+    return composite
