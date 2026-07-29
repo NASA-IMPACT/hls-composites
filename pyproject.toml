@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "boto3>=1.35.0",
+    "click>=8.1.0",
     "dask>=2025.10.0",
     "numpy>=2.1.0",
     "rasterio>=1.4.3",
@@ -17,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-hls-composites = "hls_composites:main"
+hls-composites = "hls_composites.cli:main"
 
 [dependency-groups]
 dev = [
