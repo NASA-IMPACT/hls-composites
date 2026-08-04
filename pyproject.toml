@@ -25,9 +25,29 @@ dev = [
     "boto3-stubs[s3]>=1.35.0",
     "mypy>=2.3.0",
     "pytest>=8.3.0",
+    "pytest-cov>=5.0.0",
     "ruff>=0.16.0",
 ]
 
 [build-system]
 requires = ["uv_build>=0.9.10,<0.10.0"]
 build-backend = "uv_build"
+
+[tool.ruff.lint]
+# HLS granule IDs encode date-only day-of-year; naive datetimes are intentional.
+ignore = ["DTZ007"]
+
+[tool.mypy]
+files = ["src"]
+python_version = "3.12"
+
+[[tool.mypy.overrides]]
+module = ["rasterio.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+# Fully-masked pixels legitimately trip these in nanmedian/nanstd.
+filterwarnings = [
+    "ignore:All-NaN slice encountered:RuntimeWarning",
+    "ignore:Degrees of freedom <= 0:RuntimeWarning",
+]
