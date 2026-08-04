@@ -23,8 +23,7 @@ from hls_composites.models import DateRange
 
 
 class GeoTiffCreationOptions(TypedDict, total=False):
-    """Common GDAL GeoTIFF creation options (all optional).
-    """
+    """Common GDAL GeoTIFF creation options (all optional)."""
 
     compress: str
     predictor: int

@@ -3,14 +3,11 @@
 import time
 from collections.abc import Callable
 from datetime import date
-from typing import TypeVar
 
 import numpy as np
 import rasterio as rio
 import rioxarray
 import xarray as xr
-
-_ReadResult = TypeVar("_ReadResult")
 
 from hls_composites.bands import (
     DEFAULT_BANDS,
@@ -416,14 +413,12 @@ def _default_opener(url: str) -> np.ndarray:
         return src.read(1)
 
 
-def read_band_with_retry(
+def read_band_with_retry[ReadResult](
     url: str,
     max_retries: int = 3,
     delay: float = 3.0,
-    # mypy can't reconcile a concrete default with a generic param; the default
-    # simply binds _ReadResult to np.ndarray.
-    opener: Callable[[str], _ReadResult] = _default_opener,  # type: ignore[assignment]
-) -> _ReadResult:
+    opener: Callable[[str], ReadResult] = _default_opener,  # type: ignore[assignment]
+) -> ReadResult:
     """Read one band asset, retrying transient failures.
 
     Parameters
@@ -453,7 +448,7 @@ def read_band_with_retry(
     for attempt in range(max_retries):
         try:
             return opener(url)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  any read failure is retryable
             last_error = e
             if attempt < max_retries - 1:
                 time.sleep(delay)
