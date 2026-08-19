@@ -28,6 +28,9 @@ dev = [
     "pytest-cov>=5.0.0",
     "ruff>=0.16.0",
 ]
+seed = [
+    "earthaccess>=0.18.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.9.10,<0.10.0"]

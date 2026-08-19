@@ -1,10 +1,14 @@
 # Local dev stack: a MinIO fake-S3, a one-shot seeder that mirrors real HLS
 # granules into it, and the CLI running against it. Inputs come from the
-# environment; TILE/YEARMONTH default below, PROD_BUCKET is required.
+# environment; TILE/YEARMONTH default below.
 #
 #   docker compose up -d minio
-#   PROD_BUCKET=my-hls-bucket docker compose run --rm seed
+#   docker compose run --rm seed
 #   docker compose run --rm composite
+#
+# Seeding pulls from LP DAAC over HTTPS and needs Earthdata Login credentials:
+# either a ~/.netrc with a urs.earthdata.nasa.gov entry (mounted below), or
+# EARTHDATA_USERNAME / EARTHDATA_PASSWORD in the environment.
 #
 # Override any knob inline (TILE=... YEARMONTH=...) or via a local .env file.
 # Outputs land in ./out; the MinIO console is at http://localhost:9001.
@@ -22,7 +26,7 @@ services:
     volumes:
       - minio-data:/data
 
-  # One-shot: copy real granules from PROD_BUCKET (real AWS) into MinIO.
+  # One-shot: copy real granules from LP DAAC into MinIO, over HTTPS.
   seed:
     build:
       context: .
@@ -32,8 +36,9 @@ services:
       - minio
     entrypoint: ["python", "docker/seed.py"]
     volumes:
-      # Real AWS credentials for the source (production) reads, read-only.
-      - ${HOME}/.aws:/root/.aws:ro
+      # Earthdata Login credentials for the LP DAAC reads, read-only. Mounted
+      # at earthaccess's default lookup path, so no env var is needed.
+      - ${HOME}/.netrc:/root/.netrc:ro
       # Live source, so edits are picked up without a rebuild (project is
       # installed editable). tests/docker/scripts for the dev inner loop.
       - ./src:/app/src:ro
@@ -43,15 +48,13 @@ services:
     environment:
       TILE: ${TILE:-14TPN}
       YEARMONTH: ${YEARMONTH:-2015-07}
-      # Required at runtime; seed.py fails clearly if unset.
-      PROD_BUCKET: ${PROD_BUCKET:-}
       LOCAL_BUCKET: ${LOCAL_BUCKET:-hls}
-      PROD_REQUESTER_PAYS: ${PROD_REQUESTER_PAYS:-false}
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      # Pick a profile from the mounted ~/.aws if you use named/SSO profiles.
-      AWS_PROFILE: ${AWS_PROFILE:-}
+      # Optional Earthdata Login override, taking precedence over the .netrc.
+      EARTHDATA_USERNAME: ${EARTHDATA_USERNAME:-}
+      EARTHDATA_PASSWORD: ${EARTHDATA_PASSWORD:-}
 
   # One-shot: run the CLI against MinIO to build the composite.
   composite:

@@ -7,7 +7,7 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
 
 # rasterio's manylinux wheel bundles GDAL but still links libexpat; ca-certificates
-# is needed for HTTPS reads from the real production bucket during seeding.
+# is needed for the authenticated HTTPS reads from LP DAAC during seeding.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libexpat1 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -35,7 +35,7 @@ ENTRYPOINT ["hls-composites"]
 # suite, dev scripts, and the seed tooling. Not for production.
 FROM build AS dev
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen
+    uv sync --frozen --group seed
 COPY tests ./tests
 COPY scripts ./scripts
 COPY docker ./docker
