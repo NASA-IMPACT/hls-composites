@@ -151,3 +151,54 @@ def test_scan_bucket_for_granules_returns_empty_list_when_nothing_found():
     )
 
     assert granules == []
+
+
+def test_scan_bucket_for_granules_returns_chronological_order():
+    # Interleaved dates across satellites. Order matters: an even-length stack
+    # makes the median a tie that select_best_index resolves by stack position,
+    # so discovery must not group by satellite.
+    date_range = DateRange(start=date(2020, 1, 1), end=date(2020, 1, 10))
+    pages_by_prefix = {
+        "HLSL30.020/HLS.L30.T18SUJ.2020": [
+            "HLSL30.020/HLS.L30.T18SUJ.2020002T151911.v2.0/",  # Jan 2
+            "HLSL30.020/HLS.L30.T18SUJ.2020008T151911.v2.0/",  # Jan 8
+        ],
+        "HLSS30.020/HLS.S30.T18SUJ.2020": [
+            "HLSS30.020/HLS.S30.T18SUJ.2020004T101911.v2.0/",  # Jan 4
+            "HLSS30.020/HLS.S30.T18SUJ.2020006T101911.v2.0/",  # Jan 6
+        ],
+    }
+    client = _MultiCallFakeS3Client(_MultiCallFakePaginator(pages_by_prefix))
+
+    granules = scan_bucket_for_granules(
+        client, "lp-prod-protected", "18SUJ", date_range
+    )
+
+    assert [(g.date, g.satellite) for g in granules] == [
+        (date(2020, 1, 2), "L30"),
+        (date(2020, 1, 4), "S30"),
+        (date(2020, 1, 6), "S30"),
+        (date(2020, 1, 8), "L30"),
+    ]
+
+
+def test_scan_bucket_for_granules_orders_same_day_granules_by_path():
+    # Both satellites can observe a tile on the same day; the order between
+    # them still has to be deterministic.
+    date_range = DateRange(start=date(2020, 1, 1), end=date(2020, 1, 10))
+    pages_by_prefix = {
+        "HLSL30.020/HLS.L30.T18SUJ.2020": [
+            "HLSL30.020/HLS.L30.T18SUJ.2020005T151911.v2.0/",
+        ],
+        "HLSS30.020/HLS.S30.T18SUJ.2020": [
+            "HLSS30.020/HLS.S30.T18SUJ.2020005T101911.v2.0/",
+        ],
+    }
+    client = _MultiCallFakeS3Client(_MultiCallFakePaginator(pages_by_prefix))
+
+    granules = scan_bucket_for_granules(
+        client, "lp-prod-protected", "18SUJ", date_range
+    )
+
+    assert [g.date for g in granules] == [date(2020, 1, 5), date(2020, 1, 5)]
+    assert [g.path for g in granules] == sorted(g.path for g in granules)

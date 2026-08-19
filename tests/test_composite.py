@@ -708,3 +708,66 @@ def test_build_composite_aux_layers_keep_real_values_where_valid(output):
     assert result["ValidCount"].values[0, 1] == 1
     assert result["DOY"].values[0, 0] == 15
     assert result["DOY"].values[0, 1] == 25
+
+
+def _two_obs_evi2(a: float, b: float) -> np.ndarray:
+    """A 2-timestep, 1-pixel EVI2 stack with the given values."""
+    return np.array([[[a]], [[b]]], dtype=np.float32)
+
+
+def test_select_best_index_even_stack_median_is_a_tie():
+    # np.nanmedian of an even stack is the mean of the two middle values, which
+    # is no observation's EVI2. Both are exactly equidistant from it, so the
+    # result is decided entirely by stack position -- not by the data.
+    evi2 = _two_obs_evi2(0.30, 0.50)
+    target = np.nanmedian(evi2, axis=0)
+    assert abs(evi2[0] - target) == abs(evi2[1] - target)
+
+
+def test_select_best_index_breaks_even_stack_ties_toward_the_earlier_observation():
+    # Granules arrive in chronological order (see scan_bucket_for_granules), so
+    # the lowest index is the earliest observation. Reversing the stack must
+    # therefore flip the choice -- this is what made a reverse-ordered run
+    # select a different date from the same pixels.
+    bad = np.zeros((2, 1, 1), dtype=bool)
+    all_nan = np.zeros((1, 1), dtype=bool)
+
+    forward = select_best_index(_two_obs_evi2(0.30, 0.50), bad, all_nan)
+    reversed_ = select_best_index(_two_obs_evi2(0.50, 0.30), bad, all_nan)
+
+    assert forward[0, 0] == 0
+    assert reversed_[0, 0] == 0
+
+
+def test_select_best_index_odd_stack_has_no_tie_and_ignores_order():
+    # An odd stack has a real median observation, so the choice is the same
+    # whichever order the granules arrive in.
+    bad = np.zeros((3, 1, 1), dtype=bool)
+    all_nan = np.zeros((1, 1), dtype=bool)
+    forward = np.array([[[0.10]], [[0.50]], [[0.90]]], dtype=np.float32)
+    backward = forward[::-1].copy()
+
+    assert select_best_index(forward, bad, all_nan)[0, 0] == 1
+    assert select_best_index(backward, bad, all_nan)[0, 0] == 1
+
+
+def test_build_composite_selection_is_stable_under_granule_reordering_for_odd_stacks():
+    # Three granules -> odd stack -> no tie, so the composite is identical
+    # whatever order build_composite receives them in.
+    reflectance, fmask, dates = _block_fixture()
+    granules = [
+        Granule(path=f"s3://bucket/g{i}", satellite="L30", date=d)
+        for i, d in enumerate(dates)
+    ]
+    band_data = {
+        asset_url(g, spec): (fmask[i] if spec is FMASK else reflectance[spec][i])
+        for i, g in enumerate(granules)
+        for spec in DEFAULT_BANDS
+    }
+    opener = lambda url: xr.DataArray(band_data[url], dims=("y", "x"))
+
+    forward = build_composite(granules, opener=opener).compute()
+    shuffled = build_composite(granules[::-1], opener=opener).compute()
+
+    np.testing.assert_array_equal(forward["DOY"].values, shuffled["DOY"].values)
+    np.testing.assert_array_equal(forward["NDVI"].values, shuffled["NDVI"].values)

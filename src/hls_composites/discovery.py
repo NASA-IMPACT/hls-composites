@@ -109,7 +109,13 @@ def scan_bucket_for_granules(
     -------
     list of Granule
         Granules found for `tile` within `date_range`, across all
-        requested `satellites`.
+        requested `satellites`, in chronological order.
+
+        The order is part of the contract, not an implementation detail:
+        an even-length stack makes the median a tie that `select_best_index`
+        resolves by stack position, so listing per satellite would let the
+        satellite a granule came from decide which observation wins.
+        Same-day granules are ordered by path to keep that deterministic too.
     """
     granules: list[Granule] = []
     for sat in satellites:
@@ -123,4 +129,4 @@ def scan_bucket_for_granules(
                 if granule.date not in date_range:
                     continue
                 granules.append(granule)
-    return granules
+    return sorted(granules, key=lambda g: (g.date, g.path))
