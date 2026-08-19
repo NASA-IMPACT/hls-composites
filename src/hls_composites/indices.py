@@ -139,3 +139,7 @@ ALL_INDICES: list[Index] = [
     SAVI(),
     TVI(),
 ]
+"""Every index defined here, whether or not the pipeline composites it."""
+
+DEFAULT_INDICES: list[Index] = [EVI(), NBR(), NDVI()]
+"""The indices the composite pipeline emits unless told otherwise."""

@@ -38,7 +38,7 @@ from hls_composites.composite import (
     select_best_index,
     valid_count,
 )
-from hls_composites.indices import ALL_INDICES, NDVI
+from hls_composites.indices import ALL_INDICES, DEFAULT_INDICES, NDVI
 from hls_composites.models import Granule
 
 
@@ -381,7 +381,7 @@ def test_build_composite_lazy_reader_matches_block_kernel():
     ).compute()
 
     expected = _composite_block(
-        reflectance, fmask, dates, date(2020, 1, 1), ALL_INDICES
+        reflectance, fmask, dates, date(2020, 1, 1), DEFAULT_INDICES
     )
     for name, arr in expected.items():
         np.testing.assert_array_equal(result[name].values, arr)
@@ -391,6 +391,7 @@ def test_build_composite_lazy_reader_matches_block_kernel():
     assert result["ValidCount"].values[1, 0] == 0
     assert "NDVI_std" in result.data_vars
     assert "Fmask" not in result.data_vars  # output is index-based, not reflectance
+    assert "SAVI" not in result.data_vars  # not in the default index set
 
 
 def test_build_composite_raises_on_empty_granule_list():
@@ -468,16 +469,37 @@ def test_composite_block_ndvi_value_std_and_aux():
     assert out["NDVI_std"][0, 0] == expected_std
 
 
-def test_composite_block_emits_all_indices_and_aux():
+def test_composite_block_defaults_to_the_default_indices_and_aux():
     reflectance, fmask, dates = _block_fixture()
     out = _composite_block(reflectance, fmask, dates, start_date=date(2020, 1, 1))
+
+    assert list(out) == [
+        "EVI",
+        "EVI_std",
+        "NBR",
+        "NBR_std",
+        "NDVI",
+        "NDVI_std",
+        "ValidCount",
+        "DOY",
+    ]
+    for index in DEFAULT_INDICES:
+        assert out[index.name].shape == (2, 2)
+        assert out[index.name].dtype == np.int16
+        assert out[f"{index.name}_std"].dtype == np.int16
+    assert out["ValidCount"].dtype == np.uint8
+    assert out["DOY"].dtype == np.uint8
+
+
+def test_composite_block_emits_every_index_when_asked():
+    reflectance, fmask, dates = _block_fixture()
+    out = _composite_block(
+        reflectance, fmask, dates, start_date=date(2020, 1, 1), indices=ALL_INDICES
+    )
     for index in ALL_INDICES:
         assert index.name in out
         assert f"{index.name}_std" in out
-        assert out[index.name].shape == (2, 2)
         assert out[index.name].dtype == np.int16
-    assert out["ValidCount"].dtype == np.uint8
-    assert out["DOY"].dtype == np.uint8
 
 
 def test_composite_block_bands_output_emits_reflectance_values_and_std():
@@ -614,3 +636,26 @@ def test_build_composite_bands_output_carries_band_encoding_attrs():
         for name in (spec.name, f"{spec.name}_std"):
             assert result[name].attrs["nodata"] == spec.nodata
             assert result[name].attrs["scale_factor"] == spec.scale
+
+
+def test_build_composite_honours_an_explicit_index_list():
+    reflectance, fmask, dates = _block_fixture()
+    granules = [
+        Granule(path=f"s3://bucket/g{i}", satellite="L30", date=d)
+        for i, d in enumerate(dates)
+    ]
+    band_data = {
+        asset_url(g, spec): (fmask[i] if spec is FMASK else reflectance[spec][i])
+        for i, g in enumerate(granules)
+        for spec in DEFAULT_BANDS
+    }
+    result = build_composite(
+        granules,
+        start_date=date(2020, 1, 1),
+        indices=ALL_INDICES,
+        opener=lambda url: xr.DataArray(band_data[url], dims=("y", "x")),
+    )
+
+    for index in ALL_INDICES:
+        assert index.name in result.data_vars
+        assert f"{index.name}_std" in result.data_vars

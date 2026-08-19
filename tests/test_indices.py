@@ -4,6 +4,7 @@ import pytest
 from hls_composites.bands import Band
 from hls_composites.indices import (
     ALL_INDICES,
+    DEFAULT_INDICES,
     EVI,
     MSAVI,
     NBR,
@@ -26,6 +27,15 @@ def _refl() -> dict[Band, np.ndarray]:
         Band.SWIR1: np.array([0.30], dtype=np.float32),
         Band.SWIR2: np.array([0.20], dtype=np.float32),
     }
+
+
+def test_default_indices_are_evi_nbr_ndvi():
+    assert [type(ix).__name__ for ix in DEFAULT_INDICES] == ["EVI", "NBR", "NDVI"]
+
+
+def test_default_indices_are_a_subset_of_the_registry():
+    registry = {type(ix).__name__ for ix in ALL_INDICES}
+    assert {type(ix).__name__ for ix in DEFAULT_INDICES} <= registry
 
 
 def test_all_indices_registry_has_nine():

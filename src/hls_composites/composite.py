@@ -19,7 +19,7 @@ from hls_composites.bands import (
     SPEC_BY_BAND,
     BandSpec,
 )
-from hls_composites.indices import ALL_INDICES, Index
+from hls_composites.indices import DEFAULT_INDICES, Index
 from hls_composites.models import Granule
 
 CompositeOutput = Literal["indexes", "bands"]
@@ -385,7 +385,7 @@ def _composite_block(
     fmask: np.ndarray,
     dates: list[date],
     start_date: date,
-    indices: list[Index] = ALL_INDICES,
+    indices: list[Index] = DEFAULT_INDICES,
     output: CompositeOutput = "indexes",
 ) -> dict[str, np.ndarray]:
     """Composite one spatial block: the whole per-pixel pipeline, fused.
@@ -417,7 +417,7 @@ def _composite_block(
     start_date : datetime.date
         Reference date for the `DOY` output (see `relative_doy`).
     indices : list of Index, optional
-        Indices to composite, by default `ALL_INDICES`. Ignored when
+        Indices to composite, by default `DEFAULT_INDICES`. Ignored when
         `output` is `"bands"`.
     output : {"indexes", "bands"}, optional
         Whether to composite the spectral indices (the default) or the raw
@@ -600,7 +600,8 @@ def build_composite(
         Every band is read whatever `output` is, since the QA band drives
         masking and RED/NIR_NARROW drive selection.
     indices : list of Index or None, optional
-        Spectral indices to composite, defaulting to `ALL_INDICES` when None.
+        Spectral indices to composite, defaulting to `DEFAULT_INDICES` when
+        None. Pass `ALL_INDICES` for every index defined in `indices.py`.
         Ignored when `output` is `"bands"`.
     output : {"indexes", "bands"}, optional
         Whether to composite the spectral indices (the default) or the raw
@@ -627,7 +628,7 @@ def build_composite(
     if bands is None:
         bands = DEFAULT_BANDS
     if indices is None:
-        indices = ALL_INDICES
+        indices = DEFAULT_INDICES
 
     data_vars: dict[str, xr.DataArray] = {}
     for band in bands:
