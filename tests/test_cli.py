@@ -11,8 +11,8 @@ def _patch_pipeline(monkeypatch, captured, granules):
         captured["scan"] = {"bucket": bucket, "tile": tile, "date_range": date_range}
         return granules
 
-    def fake_build(granules, start_date, **kwargs):
-        captured["build"] = {"n": len(granules), "start_date": start_date}
+    def fake_build(granules, **kwargs):
+        captured["build"] = {"n": len(granules)}
         captured["build_kwargs"] = kwargs
         return "DATASET"
 
@@ -52,7 +52,7 @@ def test_cli_maps_year_month_to_month_range_and_wires_args(monkeypatch, tmp_path
     assert captured["scan"]["date_range"] == DateRange(
         date(2015, 7, 1), date(2015, 7, 31)
     )
-    assert captured["build"] == {"n": 1, "start_date": date(2015, 7, 1)}
+    assert captured["build"] == {"n": 1}
     assert captured["write"]["tile"] == "14TPN"
     assert captured["write"]["ds"] == "DATASET"
 

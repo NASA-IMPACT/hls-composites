@@ -22,7 +22,9 @@ from hls_composites.bands import (
     Band,
 )
 from hls_composites.composite import (
+    DOY_FILL,
     QA_BIT,
+    VALID_COUNT_FILL,
     _composite_block,
     asset_url,
     band_std,
@@ -33,8 +35,8 @@ from hls_composites.composite import (
     compute_basic_mask,
     compute_evi2,
     compute_out_of_range_mask,
+    observation_doy,
     read_band_with_retry,
-    relative_doy,
     select_best_index,
     valid_count,
 )
@@ -297,24 +299,12 @@ def test_valid_count_counts_unmasked_observations():
     assert result[0, 0] == 2
 
 
-def test_relative_doy_uses_chosen_observations_date():
+def test_observation_doy_uses_chosen_observations_date():
     dates = [date_type(2020, 1, 1), date_type(2020, 1, 10), date_type(2020, 1, 20)]
     best_idx = np.array([[1]], dtype=np.int16)  # Jan 10
     all_nan_mask = np.zeros((1, 1), dtype=bool)
-    result = relative_doy(
-        dates, best_idx, all_nan_mask, start_date=date_type(2020, 1, 1)
-    )
-    assert result[0, 0] == 10  # Jan 10 is DOY 10, start is DOY 1: 10 - 1 + 1 = 10
-
-
-def test_relative_doy_all_masked_pixel_is_zero():
-    dates = [date_type(2020, 1, 1), date_type(2020, 1, 10)]
-    best_idx = np.array([[0]], dtype=np.int16)
-    all_nan_mask = np.ones((1, 1), dtype=bool)
-    result = relative_doy(
-        dates, best_idx, all_nan_mask, start_date=date_type(2020, 1, 1)
-    )
-    assert result[0, 0] == 0
+    result = observation_doy(dates, best_idx, all_nan_mask)
+    assert result[0, 0] == 10  # Jan 10 is DOY 10
 
 
 def test_read_band_with_retry_succeeds_first_try():
@@ -376,19 +366,15 @@ def test_build_composite_lazy_reader_matches_block_kernel():
     def fake_opener(url: str) -> xr.DataArray:
         return xr.DataArray(band_data[url], dims=("y", "x"))
 
-    result = build_composite(
-        granules, start_date=date(2020, 1, 1), opener=fake_opener
-    ).compute()
+    result = build_composite(granules, opener=fake_opener).compute()
 
-    expected = _composite_block(
-        reflectance, fmask, dates, date(2020, 1, 1), DEFAULT_INDICES
-    )
+    expected = _composite_block(reflectance, fmask, dates, DEFAULT_INDICES)
     for name, arr in expected.items():
         np.testing.assert_array_equal(result[name].values, arr)
 
     # Spot checks matching the kernel test's fixture semantics.
     assert result["NDVI"].values[0, 0] == 6000
-    assert result["ValidCount"].values[1, 0] == 0
+    assert result["ValidCount"].values[1, 0] == VALID_COUNT_FILL
     assert "NDVI_std" in result.data_vars
     assert "Fmask" not in result.data_vars  # output is index-based, not reflectance
     assert "SAVI" not in result.data_vars  # not in the default index set
@@ -396,7 +382,7 @@ def test_build_composite_lazy_reader_matches_block_kernel():
 
 def test_build_composite_raises_on_empty_granule_list():
     with pytest.raises(ValueError, match="at least one granule"):
-        build_composite([], start_date=date(2020, 1, 1))
+        build_composite([])
 
 
 def _block_reflectance(red: np.ndarray, nir: np.ndarray) -> dict:
@@ -436,9 +422,7 @@ def _block_fixture():
 
 def test_composite_block_ndvi_value_std_and_aux():
     reflectance, fmask, dates = _block_fixture()
-    out = _composite_block(
-        reflectance, fmask, dates, start_date=date(2020, 1, 1), indices=[NDVI()]
-    )
+    out = _composite_block(reflectance, fmask, dates, indices=[NDVI()])
 
     # Pixel (0,0): clear at all 3 -> median-EVI2 selects the middle timestep (t1) ->
     # NDVI of t1: (0.40-0.10)/(0.40+0.10) = 0.6 -> encoded 6000.
@@ -456,8 +440,8 @@ def test_composite_block_ndvi_value_std_and_aux():
     # Pixel (1,0): cloudy at every timestep -> fill everywhere.
     assert out["NDVI"][1, 0] == NDVI.fill_value
     assert out["NDVI_std"][1, 0] == NDVI.fill_value
-    assert out["ValidCount"][1, 0] == 0
-    assert out["DOY"][1, 0] == 0
+    assert out["ValidCount"][1, 0] == VALID_COUNT_FILL
+    assert out["DOY"][1, 0] == DOY_FILL
 
     # NDVI_std at (0,0): std across all 3 timesteps' NDVI.
     ndvi_t = [
@@ -471,7 +455,7 @@ def test_composite_block_ndvi_value_std_and_aux():
 
 def test_composite_block_defaults_to_the_default_indices_and_aux():
     reflectance, fmask, dates = _block_fixture()
-    out = _composite_block(reflectance, fmask, dates, start_date=date(2020, 1, 1))
+    out = _composite_block(reflectance, fmask, dates)
 
     assert list(out) == [
         "EVI",
@@ -488,14 +472,12 @@ def test_composite_block_defaults_to_the_default_indices_and_aux():
         assert out[index.name].dtype == np.int16
         assert out[f"{index.name}_std"].dtype == np.int16
     assert out["ValidCount"].dtype == np.uint8
-    assert out["DOY"].dtype == np.uint8
+    assert out["DOY"].dtype == np.int16
 
 
 def test_composite_block_emits_every_index_when_asked():
     reflectance, fmask, dates = _block_fixture()
-    out = _composite_block(
-        reflectance, fmask, dates, start_date=date(2020, 1, 1), indices=ALL_INDICES
-    )
+    out = _composite_block(reflectance, fmask, dates, indices=ALL_INDICES)
     for index in ALL_INDICES:
         assert index.name in out
         assert f"{index.name}_std" in out
@@ -504,9 +486,7 @@ def test_composite_block_emits_every_index_when_asked():
 
 def test_composite_block_bands_output_emits_reflectance_values_and_std():
     reflectance, fmask, dates = _block_fixture()
-    out = _composite_block(
-        reflectance, fmask, dates, start_date=date(2020, 1, 1), output="bands"
-    )
+    out = _composite_block(reflectance, fmask, dates, output="bands")
 
     assert list(out) == [
         "red",
@@ -528,14 +508,12 @@ def test_composite_block_bands_output_emits_reflectance_values_and_std():
         assert out[spec.name].dtype == np.int16
         assert out[f"{spec.name}_std"].dtype == np.int16
     assert out["ValidCount"].dtype == np.uint8
-    assert out["DOY"].dtype == np.uint8
+    assert out["DOY"].dtype == np.int16
 
 
 def test_composite_block_bands_output_has_no_indices_or_qa():
     reflectance, fmask, dates = _block_fixture()
-    out = _composite_block(
-        reflectance, fmask, dates, start_date=date(2020, 1, 1), output="bands"
-    )
+    out = _composite_block(reflectance, fmask, dates, output="bands")
 
     for index in ALL_INDICES:
         assert index.name not in out
@@ -544,9 +522,7 @@ def test_composite_block_bands_output_has_no_indices_or_qa():
 
 def test_composite_block_bands_values_taken_at_selected_timestep():
     reflectance, fmask, dates = _block_fixture()
-    out = _composite_block(
-        reflectance, fmask, dates, start_date=date(2020, 1, 1), output="bands"
-    )
+    out = _composite_block(reflectance, fmask, dates, output="bands")
 
     # Pixel (0,0): clear at all 3 -> median-EVI2 selects t1, whose nir is 4000.
     assert out["nir_narrow"][0, 0] == 4000
@@ -558,23 +534,19 @@ def test_composite_block_bands_values_taken_at_selected_timestep():
 
 def test_composite_block_bands_all_masked_pixel_gets_band_fill():
     reflectance, fmask, dates = _block_fixture()
-    out = _composite_block(
-        reflectance, fmask, dates, start_date=date(2020, 1, 1), output="bands"
-    )
+    out = _composite_block(reflectance, fmask, dates, output="bands")
 
     # Pixel (1,0) is cloudy at every timestep.
     for spec in REFLECTANCE_BANDS:
         assert out[spec.name][1, 0] == SR_FILL
         assert out[f"{spec.name}_std"][1, 0] == SR_FILL
-    assert out["ValidCount"][1, 0] == 0
-    assert out["DOY"][1, 0] == 0
+    assert out["ValidCount"][1, 0] == VALID_COUNT_FILL
+    assert out["DOY"][1, 0] == DOY_FILL
 
 
 def test_composite_block_bands_std_is_digital_number_std_rounded():
     reflectance, fmask, dates = _block_fixture()
-    out = _composite_block(
-        reflectance, fmask, dates, start_date=date(2020, 1, 1), output="bands"
-    )
+    out = _composite_block(reflectance, fmask, dates, output="bands")
 
     # Pixel (0,0): all 3 timesteps valid; nir is 2000/4000/6000 raw DN. The std
     # is stored in the band's own encoding, so it is not rescaled.
@@ -600,13 +572,9 @@ def test_build_composite_bands_output_matches_block_kernel():
     def fake_opener(url: str) -> xr.DataArray:
         return xr.DataArray(band_data[url], dims=("y", "x"))
 
-    result = build_composite(
-        granules, start_date=date(2020, 1, 1), output="bands", opener=fake_opener
-    ).compute()
+    result = build_composite(granules, output="bands", opener=fake_opener).compute()
 
-    expected = _composite_block(
-        reflectance, fmask, dates, date(2020, 1, 1), output="bands"
-    )
+    expected = _composite_block(reflectance, fmask, dates, output="bands")
     for name, arr in expected.items():
         np.testing.assert_array_equal(result[name].values, arr)
 
@@ -627,7 +595,6 @@ def test_build_composite_bands_output_carries_band_encoding_attrs():
     }
     result = build_composite(
         granules,
-        start_date=date(2020, 1, 1),
         output="bands",
         opener=lambda url: xr.DataArray(band_data[url], dims=("y", "x")),
     )
@@ -651,7 +618,6 @@ def test_build_composite_honours_an_explicit_index_list():
     }
     result = build_composite(
         granules,
-        start_date=date(2020, 1, 1),
         indices=ALL_INDICES,
         opener=lambda url: xr.DataArray(band_data[url], dims=("y", "x")),
     )
@@ -659,3 +625,86 @@ def test_build_composite_honours_an_explicit_index_list():
     for index in ALL_INDICES:
         assert index.name in result.data_vars
         assert f"{index.name}_std" in result.data_vars
+
+
+def test_observation_doy_is_absolute_julian_day_in_int16():
+    # Late in a leap year the DOY exceeds what a uint8 could hold.
+    dates = [date(2020, 7, 1), date(2020, 12, 31)]
+    best_idx = np.array([[0, 1]], dtype=np.int16)
+    all_nan = np.zeros((1, 2), dtype=bool)
+
+    out = observation_doy(dates, best_idx, all_nan)
+
+    assert out.dtype == np.int16
+    assert out[0, 0] == 183
+    assert out[0, 1] == 366
+
+
+def test_observation_doy_fills_pixels_with_no_valid_observation():
+    dates = [date(2020, 7, 1), date(2020, 7, 31)]
+    best_idx = np.zeros((1, 2), dtype=np.int16)
+    all_nan = np.array([[False, True]])
+
+    out = observation_doy(dates, best_idx, all_nan)
+
+    assert out[0, 0] == 183
+    assert out[0, 1] == DOY_FILL
+
+
+def test_observation_doy_fill_cannot_collide_with_a_real_day():
+    # Julian days are 1..366, so a negative fill is unreachable by construction.
+    assert DOY_FILL < 1
+
+
+def test_valid_count_fills_pixels_with_no_valid_observation():
+    # Column 0 has two usable observations, column 1 has none.
+    bad = np.array([[[False, True]], [[False, True]]])
+
+    out = valid_count(bad)
+
+    assert out.dtype == np.uint8
+    assert out[0, 0] == 2
+    assert out[0, 1] == VALID_COUNT_FILL
+
+
+def _lazy_composite(output: str):
+    reflectance, fmask, dates = _block_fixture()
+    granules = [
+        Granule(path=f"s3://bucket/g{i}", satellite="L30", date=d)
+        for i, d in enumerate(dates)
+    ]
+    band_data = {
+        asset_url(g, spec): (fmask[i] if spec is FMASK else reflectance[spec][i])
+        for i, g in enumerate(granules)
+        for spec in DEFAULT_BANDS
+    }
+    return build_composite(
+        granules,
+        output=output,
+        opener=lambda url: xr.DataArray(band_data[url], dims=("y", "x")),
+    )
+
+
+@pytest.mark.parametrize("output", ["indexes", "bands"])
+@pytest.mark.parametrize(
+    ("name", "fill", "dtype"),
+    [("DOY", DOY_FILL, np.int16), ("ValidCount", VALID_COUNT_FILL, np.uint8)],
+)
+def test_build_composite_aux_layers_declare_their_fill_value(output, name, fill, dtype):
+    result = _lazy_composite(output)
+
+    assert result[name].dtype == dtype
+    assert result[name].attrs["nodata"] == fill
+    # Pixel (1,0) is cloudy at every timestep, so both aux layers are filled.
+    assert result[name].compute().values[1, 0] == fill
+
+
+@pytest.mark.parametrize("output", ["indexes", "bands"])
+def test_build_composite_aux_layers_keep_real_values_where_valid(output):
+    result = _lazy_composite(output).compute()
+
+    # Pixel (0,0) is clear at all 3 timesteps; (0,1) only at the last.
+    assert result["ValidCount"].values[0, 0] == 3
+    assert result["ValidCount"].values[0, 1] == 1
+    assert result["DOY"].values[0, 0] == 15
+    assert result["DOY"].values[0, 1] == 25

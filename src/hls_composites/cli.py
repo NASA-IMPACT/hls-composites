@@ -85,6 +85,6 @@ def main(
     click.echo(
         f"Compositing {output} from {len(granules)} granules for {tile_id} {year_month}"
     )
-    composite = build_composite(granules, start_date=date_range.start, output=output)
+    composite = build_composite(granules, output=output)
     dest = write_composite(composite, output_dir, tile_id, date_range)
     click.echo(f"Wrote composite to {dest}")

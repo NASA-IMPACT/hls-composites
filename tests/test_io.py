@@ -25,6 +25,7 @@ def _georef_dataset() -> xr.Dataset:
     valid_count = xr.DataArray(
         (values % 4).astype(np.uint8), dims=("y", "x"), coords={"y": y, "x": x}
     )
+    valid_count.attrs["nodata"] = 255
     doy = valid_count.copy()
 
     ds = xr.Dataset(
@@ -74,8 +75,20 @@ def test_written_geotiff_round_trips_dtype_nodata_crs_and_scale(tmp_path):
         assert src.scales[0] == 1e-4
         np.testing.assert_array_equal(src.read(1), ds["NDVI"].values)
 
-    # Aux bands: no nodata, unit scale.
-    with rasterio.open(f"{prefix}.ValidCount.tif") as src:
-        assert src.dtypes[0] == "uint8"
+    # Aux layers reserve the uint8 max as their fill, and the writer must
+    # stamp it on the image.
+    for var in ("ValidCount", "DOY"):
+        with rasterio.open(f"{prefix}.{var}.tif") as src:
+            assert src.dtypes[0] == "uint8"
+            assert src.nodata == 255
+            assert src.scales[0] == 1.0
+
+
+def test_written_geotiff_omits_nodata_when_the_variable_declares_none(tmp_path):
+    date_range = DateRange(start=date(2020, 7, 1), end=date(2020, 7, 31))
+    ds = _georef_dataset()
+    del ds["DOY"].attrs["nodata"]
+    dest = write_composite(ds, tmp_path, "14TPN", date_range)
+
+    with rasterio.open(dest / "HLS.M30.T14TPN.2020183.2020213.v2.0.DOY.tif") as src:
         assert src.nodata is None
-        assert src.scales[0] == 1.0

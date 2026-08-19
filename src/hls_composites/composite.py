@@ -25,6 +25,15 @@ from hls_composites.models import Granule
 CompositeOutput = Literal["indexes", "bands"]
 """Which quantity a composite is built over: spectral indices or raw bands."""
 
+DOY_FILL = -1
+"""Fill value for `DOY`. Julian days are 1..366, so a negative is unreachable."""
+
+VALID_COUNT_FILL = 255
+"""Fill value for `ValidCount`: the uint8 maximum.
+
+A tile-month holds nowhere near 255 granules, so no real count can reach it.
+"""
+
 QA_BIT = {
     "cirrus": 0,
     "cloud": 1,
@@ -280,14 +289,17 @@ def valid_count(bad_pixel_mask: np.ndarray) -> np.ndarray:
     -------
     numpy.ndarray
         `uint8` count of unmasked observations per pixel, shaped `(Y, X)`.
+        Pixels with no valid observation get `VALID_COUNT_FILL` rather than 0, so
+        they read as absent data rather than as a measured zero.
     """
-    return np.sum(~bad_pixel_mask, axis=0).astype(np.uint8)
+    counts = np.sum(~bad_pixel_mask, axis=0)
+    return np.where(counts == 0, VALID_COUNT_FILL, counts).astype(np.uint8)
 
 
-def relative_doy(
-    dates: list[date], best_idx: np.ndarray, all_nan_mask: np.ndarray, start_date: date
+def observation_doy(
+    dates: list[date], best_idx: np.ndarray, all_nan_mask: np.ndarray
 ) -> np.ndarray:
-    """Compute each pixel's chosen observation date, relative to start_date.
+    """Compute the Julian day of each pixel's chosen observation.
 
     Parameters
     ----------
@@ -299,20 +311,15 @@ def relative_doy(
         `select_best_index`).
     all_nan_mask : numpy.ndarray
         Boolean mask, shaped `(Y, X)` (see `compute_all_nan_mask`).
-    start_date : datetime.date
-        Reference date the day-of-year offset is computed against.
 
     Returns
     -------
     numpy.ndarray
-        `uint8` day-of-year offset per pixel, shaped `(Y, X)`, relative
-        to `start_date`. Pixels in `all_nan_mask` are 0.
+        `int16` Julian day-of-year (1..366) per pixel, shaped `(Y, X)`.
+        Pixels in `all_nan_mask` get `DOY_FILL`.
     """
-    doy_vals = np.array([d.timetuple().tm_yday for d in dates], dtype=np.int32)
-    start_doy = start_date.timetuple().tm_yday
-    chosen_doy = doy_vals[best_idx]
-    rel = chosen_doy - start_doy + 1
-    return np.where(all_nan_mask, 0, rel).astype(np.uint8)
+    doy_vals = np.array([d.timetuple().tm_yday for d in dates], dtype=np.int16)
+    return np.where(all_nan_mask, DOY_FILL, doy_vals[best_idx]).astype(np.int16)
 
 
 def _encode_index(
@@ -384,7 +391,6 @@ def _composite_block(
     reflectance: dict[BandSpec, np.ndarray],
     fmask: np.ndarray,
     dates: list[date],
-    start_date: date,
     indices: list[Index] = DEFAULT_INDICES,
     output: CompositeOutput = "indexes",
 ) -> dict[str, np.ndarray]:
@@ -414,8 +420,6 @@ def _composite_block(
         Fmask QA band stack, shaped `(T, Y, X)`.
     dates : list of datetime.date
         Observation date per timestep, in `T`-axis order.
-    start_date : datetime.date
-        Reference date for the `DOY` output (see `relative_doy`).
     indices : list of Index, optional
         Indices to composite, by default `DEFAULT_INDICES`. Ignored when
         `output` is `"bands"`.
@@ -426,8 +430,9 @@ def _composite_block(
     Returns
     -------
     dict of str to numpy.ndarray
-        One `(Y, X)` array per output variable, plus `ValidCount` (uint8) and
-        `DOY` (uint8). For `"indexes"`, `{index.name}` and `{index.name}_std`
+        One `(Y, X)` array per output variable, plus `ValidCount` (uint8,
+        filled with `VALID_COUNT_FILL`) and `DOY` (int16, filled with
+        `DOY_FILL`). For `"indexes"`, `{index.name}` and `{index.name}_std`
         (int16) per index; for `"bands"`, `{band.name}` and `{band.name}_std`
         (int16) per reflectance band, in `reflectance` order.
     """
@@ -459,7 +464,7 @@ def _composite_block(
             out[f"{index.name}_std"] = _encode_index(std, index, all_nan)
 
     out["ValidCount"] = valid_count(bad)
-    out["DOY"] = relative_doy(dates, best_idx, all_nan, start_date)
+    out["DOY"] = observation_doy(dates, best_idx, all_nan)
     return out
 
 
@@ -543,7 +548,6 @@ def _map_block_kernel(
     ds_block: xr.Dataset,
     *,
     dates: list[date],
-    start_date: date,
     indices: list[Index],
     bands: list[BandSpec],
     output: CompositeOutput,
@@ -557,7 +561,7 @@ def _map_block_kernel(
     """
     reflectance = {b: ds_block[b.name].values for b in bands if b.is_reflectance}
     fmask = ds_block[FMASK.name].values
-    out = _composite_block(reflectance, fmask, dates, start_date, indices, output)
+    out = _composite_block(reflectance, fmask, dates, indices, output)
     # Carry every non-temporal coord through (y, x, and the CRS's spatial_ref)
     # so the returned block matches the template map_blocks validates against.
     coords = {
@@ -573,7 +577,6 @@ def _map_block_kernel(
 
 def build_composite(
     granules: list[Granule],
-    start_date: date,
     bands: list[BandSpec] | None = None,
     indices: list[Index] | None = None,
     output: CompositeOutput = "indexes",
@@ -593,8 +596,6 @@ def build_composite(
     granules : list of Granule
         Granules to composite, typically from `scan_bucket_for_granules`.
         Must be non-empty.
-    start_date : datetime.date
-        Reference date for the output `DOY` variable (see `relative_doy`).
     bands : list of BandSpec or None, optional
         Reflectance + QA bands to read, defaulting to `DEFAULT_BANDS` when None.
         Every band is read whatever `output` is, since the QA band drives
@@ -614,9 +615,9 @@ def build_composite(
     -------
     xarray.Dataset
         Lazy Dataset carrying the granules' CRS/transform, with `ValidCount`
-        and `DOY` (uint8) plus, per `output`, either `{index.name}` and
-        `{index.name}_std` per index or `{band.name}` and `{band.name}_std`
-        per reflectance band (int16 either way).
+        (uint8) and `DOY` (int16) plus, per `output`, either `{index.name}`
+        and `{index.name}_std` per index or `{band.name}` and
+        `{band.name}_std` per reflectance band (int16 either way).
 
     Raises
     ------
@@ -657,7 +658,7 @@ def build_composite(
                 template2d, dtype=np.int16
             )
     template_vars["ValidCount"] = xr.zeros_like(template2d, dtype=np.uint8)
-    template_vars["DOY"] = xr.zeros_like(template2d, dtype=np.uint8)
+    template_vars["DOY"] = xr.zeros_like(template2d, dtype=np.int16)
     template = xr.Dataset(template_vars)
 
     dates = [g.date for g in granules]
@@ -666,7 +667,6 @@ def build_composite(
         stacked,
         kwargs={
             "dates": dates,
-            "start_date": start_date,
             "indices": indices,
             "bands": bands,
             "output": output,
@@ -674,8 +674,8 @@ def build_composite(
         template=template,
     )
 
-    # Self-describe each composited var's nodata/scale so the writer stays
-    # generic. ValidCount/DOY carry neither (no nodata sentinel, unit scale).
+    # Self-describe each var's nodata/scale so the writer stays generic. The
+    # aux layers share one fill and need no scale.
     if output == "bands":
         for band in bands:
             if not band.is_reflectance:
@@ -688,4 +688,6 @@ def build_composite(
             for name in (index.name, f"{index.name}_std"):
                 composite[name].attrs["nodata"] = index.fill_value
                 composite[name].attrs["scale_factor"] = index.scale_factor
+    composite["ValidCount"].attrs["nodata"] = VALID_COUNT_FILL
+    composite["DOY"].attrs["nodata"] = DOY_FILL
     return composite
