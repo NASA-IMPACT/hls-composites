@@ -10,6 +10,14 @@
 # either a ~/.netrc with a urs.earthdata.nasa.gov entry (mounted below), or
 # EARTHDATA_USERNAME / EARTHDATA_PASSWORD in the environment.
 #
+# MODE picks what the composite is built over -- indexes (the default) or the
+# raw reflectance bands:
+#
+#   MODE=bands docker compose run --rm composite
+#
+# Both modes name their output directory after the tile-month alone, so running
+# each in turn leaves their GeoTIFFs side by side in one folder.
+#
 # Override any knob inline (TILE=... YEARMONTH=...) or via a local .env file.
 # Outputs land in ./out; the MinIO console is at http://localhost:9001.
 
@@ -73,6 +81,8 @@ services:
       - "${LOCAL_BUCKET:-hls}"
       - "--output-dir"
       - "/out"
+      # MODE=indexes (default) or MODE=bands, spelled as the CLI flag.
+      - "--${MODE:-indexes}"
     volumes:
       - ./out:/out
       # Live source, picked up without a rebuild (project installed editable).

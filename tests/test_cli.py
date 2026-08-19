@@ -13,6 +13,7 @@ def _patch_pipeline(monkeypatch, captured, granules):
 
     def fake_build(granules, start_date, **kwargs):
         captured["build"] = {"n": len(granules), "start_date": start_date}
+        captured["build_kwargs"] = kwargs
         return "DATASET"
 
     def fake_write(ds, out_dir, tile, date_range, **kwargs):
@@ -123,3 +124,69 @@ def test_cli_no_granules_skips_build_and_writes_marker(monkeypatch, tmp_path):
     assert "build" not in captured  # build_composite must not run
     marker = tmp_path / "HLS.M30.T14TPN.2015182.2015212.v2.0" / "No granules found"
     assert marker.exists()
+
+
+def _invoke(tmp_path, *extra):
+    return CliRunner().invoke(
+        cli.main,
+        [
+            "--tile-id",
+            "14TPN",
+            "--year-month",
+            "2015-07",
+            "--bucket",
+            "my-bucket",
+            "--output-dir",
+            str(tmp_path),
+            *extra,
+        ],
+    )
+
+
+def test_cli_defaults_to_index_output(monkeypatch, tmp_path):
+    captured: dict = {}
+    _patch_pipeline(
+        monkeypatch, captured, [Granule("s3://b/g", "L30", date(2015, 7, 10))]
+    )
+
+    result = _invoke(tmp_path)
+
+    assert result.exit_code == 0, result.output
+    assert captured["build_kwargs"]["output"] == "indexes"
+
+
+def test_cli_indexes_flag_is_explicit_default(monkeypatch, tmp_path):
+    captured: dict = {}
+    _patch_pipeline(
+        monkeypatch, captured, [Granule("s3://b/g", "L30", date(2015, 7, 10))]
+    )
+
+    result = _invoke(tmp_path, "--indexes")
+
+    assert result.exit_code == 0, result.output
+    assert captured["build_kwargs"]["output"] == "indexes"
+
+
+def test_cli_bands_flag_selects_band_output(monkeypatch, tmp_path):
+    captured: dict = {}
+    _patch_pipeline(
+        monkeypatch, captured, [Granule("s3://b/g", "L30", date(2015, 7, 10))]
+    )
+
+    result = _invoke(tmp_path, "--bands")
+
+    assert result.exit_code == 0, result.output
+    assert captured["build_kwargs"]["output"] == "bands"
+
+
+def test_cli_rejects_bands_and_indexes_together(monkeypatch, tmp_path):
+    captured: dict = {}
+    _patch_pipeline(
+        monkeypatch, captured, [Granule("s3://b/g", "L30", date(2015, 7, 10))]
+    )
+
+    result = _invoke(tmp_path, "--bands", "--indexes")
+
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output
+    assert "build" not in captured

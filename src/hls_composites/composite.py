@@ -3,6 +3,7 @@
 import time
 from collections.abc import Callable
 from datetime import date
+from typing import Literal
 
 import numpy as np
 import rasterio as rio
@@ -20,6 +21,9 @@ from hls_composites.bands import (
 )
 from hls_composites.indices import ALL_INDICES, Index
 from hls_composites.models import Granule
+
+CompositeOutput = Literal["indexes", "bands"]
+"""Which quantity a composite is built over: spectral indices or raw bands."""
 
 QA_BIT = {
     "cirrus": 0,
@@ -345,22 +349,60 @@ def _encode_index(
     return out
 
 
+def _encode_band_std(
+    values: np.ndarray, band: BandSpec, all_nan_mask: np.ndarray
+) -> np.ndarray:
+    """Round a raw band's temporal standard deviation to its int16 encoding.
+
+    The standard deviation is computed on raw digital numbers, which are
+    already the band's storage encoding, so -- unlike `_encode_index` -- no
+    rescaling happens here.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        Standard deviation in digital numbers, shaped `(Y, X)` (see `band_std`).
+    band : BandSpec
+        The band these values belong to (supplies `nodata`).
+    all_nan_mask : numpy.ndarray
+        Boolean mask, shaped `(Y, X)` (see `compute_all_nan_mask`).
+
+    Returns
+    -------
+    numpy.ndarray
+        `int16` encoded standard deviation, shaped `(Y, X)`.
+    """
+    invalid = all_nan_mask | ~np.isfinite(values)
+    info = np.iinfo(np.int16)
+    clipped = np.clip(np.where(invalid, 0, values), info.min, info.max)
+    out = np.round(clipped).astype(np.int16)
+    out[invalid] = band.nodata
+    return out
+
+
 def _composite_block(
     reflectance: dict[BandSpec, np.ndarray],
     fmask: np.ndarray,
     dates: list[date],
     start_date: date,
     indices: list[Index] = ALL_INDICES,
+    output: CompositeOutput = "indexes",
 ) -> dict[str, np.ndarray]:
     """Composite one spatial block: the whole per-pixel pipeline, fused.
 
     Runs entirely on in-memory numpy for a single spatial block holding the
     full temporal stack: masks bad observations, selects the median-EVI2
-    timestep per pixel, then -- for each index, one at a time -- computes the
-    per-timestep index, takes the composite value at the selected timestep,
-    and the standard deviation across valid timesteps. Only one index's
-    temporal stack is materialized at a time, so peak memory stays bounded by
-    the reflectance stack plus a single index stack.
+    timestep per pixel, then takes the composite value at the selected
+    timestep and the standard deviation across valid timesteps -- either for
+    each spectral index or for each reflectance band, per `output`.
+
+    In `"indexes"` mode only one index's temporal stack is materialized at a
+    time, so peak memory stays bounded by the reflectance stack plus a single
+    index stack. `"bands"` mode composites the reflectance stack directly and
+    materializes nothing extra.
+
+    Pixel selection is identical in both modes: median-EVI2, which needs
+    `RED` and `NIR_NARROW` regardless of what is being composited.
 
     Parameters
     ----------
@@ -375,14 +417,19 @@ def _composite_block(
     start_date : datetime.date
         Reference date for the `DOY` output (see `relative_doy`).
     indices : list of Index, optional
-        Indices to composite, by default `ALL_INDICES`.
+        Indices to composite, by default `ALL_INDICES`. Ignored when
+        `output` is `"bands"`.
+    output : {"indexes", "bands"}, optional
+        Whether to composite the spectral indices (the default) or the raw
+        reflectance bands.
 
     Returns
     -------
     dict of str to numpy.ndarray
-        One `(Y, X)` array per output variable: `{index.name}` and
-        `{index.name}_std` (int16) for each index, plus `ValidCount` (uint8)
-        and `DOY` (uint8).
+        One `(Y, X)` array per output variable, plus `ValidCount` (uint8) and
+        `DOY` (uint8). For `"indexes"`, `{index.name}` and `{index.name}_std`
+        (int16) per index; for `"bands"`, `{band.name}` and `{band.name}_std`
+        (int16) per reflectance band, in `reflectance` order.
     """
     bad = compute_bad_pixel_mask(reflectance, fmask)
     all_nan = compute_all_nan_mask(bad)
@@ -390,18 +437,26 @@ def _composite_block(
     best_idx = select_best_index(evi2, bad, all_nan)
 
     out: dict[str, np.ndarray] = {}
-    for index in indices:
-        per_timestep = {
-            band: reflectance[SPEC_BY_BAND[band]].astype(np.float32)
-            * SPEC_BY_BAND[band].scale
-            for band in index.bands
-        }
-        stack = np.where(bad, np.nan, index(per_timestep))
-        value = np.take_along_axis(stack, best_idx[None, :, :], axis=0)[0]
-        with np.errstate(all="ignore"):
-            std = np.nanstd(stack, axis=0)
-        out[index.name] = _encode_index(value, index, all_nan)
-        out[f"{index.name}_std"] = _encode_index(std, index, all_nan)
+    if output == "bands":
+        for band, values in reflectance.items():
+            composited = composite_band(values, best_idx, all_nan, band.nodata)
+            out[band.name] = composited.astype(band.dtype)
+            out[f"{band.name}_std"] = _encode_band_std(
+                band_std(values, bad, all_nan), band, all_nan
+            )
+    else:
+        for index in indices:
+            per_timestep = {
+                band: reflectance[SPEC_BY_BAND[band]].astype(np.float32)
+                * SPEC_BY_BAND[band].scale
+                for band in index.bands
+            }
+            stack = np.where(bad, np.nan, index(per_timestep))
+            value = np.take_along_axis(stack, best_idx[None, :, :], axis=0)[0]
+            with np.errstate(all="ignore"):
+                std = np.nanstd(stack, axis=0)
+            out[index.name] = _encode_index(value, index, all_nan)
+            out[f"{index.name}_std"] = _encode_index(std, index, all_nan)
 
     out["ValidCount"] = valid_count(bad)
     out["DOY"] = relative_doy(dates, best_idx, all_nan, start_date)
@@ -491,6 +546,7 @@ def _map_block_kernel(
     start_date: date,
     indices: list[Index],
     bands: list[BandSpec],
+    output: CompositeOutput,
 ) -> xr.Dataset:
     """Run `_composite_block` on one spatial block, wrapped for `xr.map_blocks`.
 
@@ -501,7 +557,7 @@ def _map_block_kernel(
     """
     reflectance = {b: ds_block[b.name].values for b in bands if b.is_reflectance}
     fmask = ds_block[FMASK.name].values
-    out = _composite_block(reflectance, fmask, dates, start_date, indices)
+    out = _composite_block(reflectance, fmask, dates, start_date, indices, output)
     # Carry every non-temporal coord through (y, x, and the CRS's spatial_ref)
     # so the returned block matches the template map_blocks validates against.
     coords = {
@@ -520,16 +576,17 @@ def build_composite(
     start_date: date,
     bands: list[BandSpec] | None = None,
     indices: list[Index] | None = None,
+    output: CompositeOutput = "indexes",
     opener=_default_da_opener,
 ) -> xr.Dataset:
-    """Build a lazy spectral-index composite Dataset from a list of granules.
+    """Build a lazy composite Dataset from a list of granules.
 
     Reads each band across all granules lazily (dask-chunked at the HLS native
     block size), then applies the entire masking / median-EVI2 selection /
-    per-index aggregation pipeline as a single fused `xr.map_blocks` kernel per
-    spatial block (see `_composite_block`). The returned Dataset is lazy;
-    computation streams block-by-block when it is written or `.compute()`-ed,
-    keeping memory bounded to roughly one block's temporal stack.
+    aggregation pipeline as a single fused `xr.map_blocks` kernel per spatial
+    block (see `_composite_block`). The returned Dataset is lazy; computation
+    streams block-by-block when it is written or `.compute()`-ed, keeping
+    memory bounded to roughly one block's temporal stack.
 
     Parameters
     ----------
@@ -540,8 +597,14 @@ def build_composite(
         Reference date for the output `DOY` variable (see `relative_doy`).
     bands : list of BandSpec or None, optional
         Reflectance + QA bands to read, defaulting to `DEFAULT_BANDS` when None.
+        Every band is read whatever `output` is, since the QA band drives
+        masking and RED/NIR_NARROW drive selection.
     indices : list of Index or None, optional
         Spectral indices to composite, defaulting to `ALL_INDICES` when None.
+        Ignored when `output` is `"bands"`.
+    output : {"indexes", "bands"}, optional
+        Whether to composite the spectral indices (the default) or the raw
+        reflectance bands.
     opener : callable, optional
         Function taking a URL and returning a lazy `(y, x)` DataArray, passed
         through to `read_band_with_retry`. Overridable for testing.
@@ -549,9 +612,10 @@ def build_composite(
     Returns
     -------
     xarray.Dataset
-        Lazy Dataset with `{index.name}` and `{index.name}_std` (int16) per
-        index, plus `ValidCount` and `DOY` (uint8), carrying the granules'
-        CRS/transform.
+        Lazy Dataset carrying the granules' CRS/transform, with `ValidCount`
+        and `DOY` (uint8) plus, per `output`, either `{index.name}` and
+        `{index.name}_std` per index or `{band.name}` and `{band.name}_std`
+        per reflectance band (int16 either way).
 
     Raises
     ------
@@ -577,9 +641,20 @@ def build_composite(
 
     template2d = stacked[FMASK.name].isel(time=0, drop=True)
     template_vars: dict[str, xr.DataArray] = {}
-    for index in indices:
-        template_vars[index.name] = xr.zeros_like(template2d, dtype=np.int16)
-        template_vars[f"{index.name}_std"] = xr.zeros_like(template2d, dtype=np.int16)
+    if output == "bands":
+        for band in bands:
+            if not band.is_reflectance:
+                continue
+            template_vars[band.name] = xr.zeros_like(template2d, dtype=band.dtype)
+            template_vars[f"{band.name}_std"] = xr.zeros_like(
+                template2d, dtype=np.int16
+            )
+    else:
+        for index in indices:
+            template_vars[index.name] = xr.zeros_like(template2d, dtype=np.int16)
+            template_vars[f"{index.name}_std"] = xr.zeros_like(
+                template2d, dtype=np.int16
+            )
     template_vars["ValidCount"] = xr.zeros_like(template2d, dtype=np.uint8)
     template_vars["DOY"] = xr.zeros_like(template2d, dtype=np.uint8)
     template = xr.Dataset(template_vars)
@@ -593,14 +668,23 @@ def build_composite(
             "start_date": start_date,
             "indices": indices,
             "bands": bands,
+            "output": output,
         },
         template=template,
     )
 
-    # Self-describe each index var's nodata/scale so the writer stays generic.
-    # ValidCount/DOY carry neither (no nodata sentinel, unit scale).
-    for index in indices:
-        for name in (index.name, f"{index.name}_std"):
-            composite[name].attrs["nodata"] = index.fill_value
-            composite[name].attrs["scale_factor"] = index.scale_factor
+    # Self-describe each composited var's nodata/scale so the writer stays
+    # generic. ValidCount/DOY carry neither (no nodata sentinel, unit scale).
+    if output == "bands":
+        for band in bands:
+            if not band.is_reflectance:
+                continue
+            for name in (band.name, f"{band.name}_std"):
+                composite[name].attrs["nodata"] = band.nodata
+                composite[name].attrs["scale_factor"] = band.scale
+    else:
+        for index in indices:
+            for name in (index.name, f"{index.name}_std"):
+                composite[name].attrs["nodata"] = index.fill_value
+                composite[name].attrs["scale_factor"] = index.scale_factor
     return composite

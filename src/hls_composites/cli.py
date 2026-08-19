@@ -7,7 +7,7 @@ from pathlib import Path
 import boto3
 import click
 
-from hls_composites.composite import build_composite
+from hls_composites.composite import CompositeOutput, build_composite
 from hls_composites.discovery import scan_bucket_for_granules
 from hls_composites.io import composite_id, write_composite
 from hls_composites.models import DateRange
@@ -46,8 +46,31 @@ def _month_range(year_month: str) -> DateRange:
     type=click.Path(file_okay=False, path_type=Path),
     help="Local directory to write the composite into.",
 )
-def main(tile_id: str, year_month: str, bucket: str, output_dir: Path) -> None:
-    """Build the monthly HLS index composite for one tile and write it locally."""
+@click.option(
+    "--indexes",
+    "indexes",
+    is_flag=True,
+    help="Composite the spectral indices. The default.",
+)
+@click.option(
+    "--bands",
+    "bands",
+    is_flag=True,
+    help="Composite the raw reflectance bands instead of the spectral indices.",
+)
+def main(
+    tile_id: str,
+    year_month: str,
+    bucket: str,
+    output_dir: Path,
+    indexes: bool,
+    bands: bool,
+) -> None:
+    """Build the monthly HLS composite for one tile and write it locally."""
+    if indexes and bands:
+        raise click.UsageError("--indexes and --bands are mutually exclusive")
+    output: CompositeOutput = "bands" if bands else "indexes"
+
     date_range = _month_range(year_month)
     s3_client = boto3.client("s3")
     granules = scan_bucket_for_granules(s3_client, bucket, tile_id, date_range)
@@ -59,7 +82,9 @@ def main(tile_id: str, year_month: str, bucket: str, output_dir: Path) -> None:
         click.echo(f"No granules found for {tile_id} {year_month}; wrote {dest}")
         return
 
-    click.echo(f"Compositing {len(granules)} granules for {tile_id} {year_month}")
-    composite = build_composite(granules, start_date=date_range.start)
+    click.echo(
+        f"Compositing {output} from {len(granules)} granules for {tile_id} {year_month}"
+    )
+    composite = build_composite(granules, start_date=date_range.start, output=output)
     dest = write_composite(composite, output_dir, tile_id, date_range)
     click.echo(f"Wrote composite to {dest}")

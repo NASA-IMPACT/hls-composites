@@ -478,3 +478,139 @@ def test_composite_block_emits_all_indices_and_aux():
         assert out[index.name].dtype == np.int16
     assert out["ValidCount"].dtype == np.uint8
     assert out["DOY"].dtype == np.uint8
+
+
+def test_composite_block_bands_output_emits_reflectance_values_and_std():
+    reflectance, fmask, dates = _block_fixture()
+    out = _composite_block(
+        reflectance, fmask, dates, start_date=date(2020, 1, 1), output="bands"
+    )
+
+    assert list(out) == [
+        "red",
+        "red_std",
+        "green",
+        "green_std",
+        "blue",
+        "blue_std",
+        "nir_narrow",
+        "nir_narrow_std",
+        "swir_1",
+        "swir_1_std",
+        "swir_2",
+        "swir_2_std",
+        "ValidCount",
+        "DOY",
+    ]
+    for spec in REFLECTANCE_BANDS:
+        assert out[spec.name].dtype == np.int16
+        assert out[f"{spec.name}_std"].dtype == np.int16
+    assert out["ValidCount"].dtype == np.uint8
+    assert out["DOY"].dtype == np.uint8
+
+
+def test_composite_block_bands_output_has_no_indices_or_qa():
+    reflectance, fmask, dates = _block_fixture()
+    out = _composite_block(
+        reflectance, fmask, dates, start_date=date(2020, 1, 1), output="bands"
+    )
+
+    for index in ALL_INDICES:
+        assert index.name not in out
+    assert FMASK.name not in out
+
+
+def test_composite_block_bands_values_taken_at_selected_timestep():
+    reflectance, fmask, dates = _block_fixture()
+    out = _composite_block(
+        reflectance, fmask, dates, start_date=date(2020, 1, 1), output="bands"
+    )
+
+    # Pixel (0,0): clear at all 3 -> median-EVI2 selects t1, whose nir is 4000.
+    assert out["nir_narrow"][0, 0] == 4000
+    # Pixel (0,1): only t2 valid -> its nir, 6000.
+    assert out["nir_narrow"][0, 1] == 6000
+    # red is constant across the stack, so selection cannot change it.
+    assert out["red"][0, 0] == 1000
+
+
+def test_composite_block_bands_all_masked_pixel_gets_band_fill():
+    reflectance, fmask, dates = _block_fixture()
+    out = _composite_block(
+        reflectance, fmask, dates, start_date=date(2020, 1, 1), output="bands"
+    )
+
+    # Pixel (1,0) is cloudy at every timestep.
+    for spec in REFLECTANCE_BANDS:
+        assert out[spec.name][1, 0] == SR_FILL
+        assert out[f"{spec.name}_std"][1, 0] == SR_FILL
+    assert out["ValidCount"][1, 0] == 0
+    assert out["DOY"][1, 0] == 0
+
+
+def test_composite_block_bands_std_is_digital_number_std_rounded():
+    reflectance, fmask, dates = _block_fixture()
+    out = _composite_block(
+        reflectance, fmask, dates, start_date=date(2020, 1, 1), output="bands"
+    )
+
+    # Pixel (0,0): all 3 timesteps valid; nir is 2000/4000/6000 raw DN. The std
+    # is stored in the band's own encoding, so it is not rescaled.
+    assert out["nir_narrow"][0, 0] == 4000
+    assert out["nir_narrow_std"][0, 0] == round(float(np.std([2000, 4000, 6000])))
+    # Constant band -> zero spread.
+    assert out["red_std"][0, 0] == 0
+
+
+def test_build_composite_bands_output_matches_block_kernel():
+    reflectance, fmask, dates = _block_fixture()
+    granules = [
+        Granule(path=f"s3://bucket/g{i}", satellite="L30", date=d)
+        for i, d in enumerate(dates)
+    ]
+
+    band_data: dict[str, np.ndarray] = {}
+    for i, granule in enumerate(granules):
+        for spec in DEFAULT_BANDS:
+            arr = fmask[i] if spec is FMASK else reflectance[spec][i]
+            band_data[asset_url(granule, spec)] = arr
+
+    def fake_opener(url: str) -> xr.DataArray:
+        return xr.DataArray(band_data[url], dims=("y", "x"))
+
+    result = build_composite(
+        granules, start_date=date(2020, 1, 1), output="bands", opener=fake_opener
+    ).compute()
+
+    expected = _composite_block(
+        reflectance, fmask, dates, date(2020, 1, 1), output="bands"
+    )
+    for name, arr in expected.items():
+        np.testing.assert_array_equal(result[name].values, arr)
+
+    assert "NDVI" not in result.data_vars
+    assert FMASK.name not in result.data_vars
+
+
+def test_build_composite_bands_output_carries_band_encoding_attrs():
+    reflectance, fmask, dates = _block_fixture()
+    granules = [
+        Granule(path=f"s3://bucket/g{i}", satellite="L30", date=d)
+        for i, d in enumerate(dates)
+    ]
+    band_data = {
+        asset_url(g, spec): (fmask[i] if spec is FMASK else reflectance[spec][i])
+        for i, g in enumerate(granules)
+        for spec in DEFAULT_BANDS
+    }
+    result = build_composite(
+        granules,
+        start_date=date(2020, 1, 1),
+        output="bands",
+        opener=lambda url: xr.DataArray(band_data[url], dims=("y", "x")),
+    )
+
+    for spec in REFLECTANCE_BANDS:
+        for name in (spec.name, f"{spec.name}_std"):
+            assert result[name].attrs["nodata"] == spec.nodata
+            assert result[name].attrs["scale_factor"] == spec.scale
