@@ -1,3 +1,4 @@
+import datetime as dt
 from typing import Annotated, Any, Literal
 
 from pydantic import BeforeValidator
@@ -37,6 +38,11 @@ class StackSettings(BaseSettings):
     # Bucket the monthly composites are written to
     OUTPUT_BUCKET_NAME: str
 
+    # Bucket the job monitor writes records, state pointers, and output index
+    # entries to. Created by the batch-event-job-monitor ProcessingBucket
+    # construct, which also configures its S3 Inventories.
+    PROCESSING_BUCKET_NAME: str
+
     # ----- LPDAAC access
     # Role from `hls-vi-historical-orchestration` that LPDAAC bucket policies grant
     # read access to. Our job role is allowed to assume it; that only takes effect
@@ -52,6 +58,20 @@ class StackSettings(BaseSettings):
     # Custom log group (otherwise logs land in the catch-all AWS Batch log group)
     PROCESSING_LOG_GROUP_NAME: str
     PROCESSING_LOG_RETENTION_DAYS: int = 30
+
+    # ----- Job monitoring
+    # The monitoring queues are created and named by the MonitoringQueues
+    # construct; their URLs come out as stack outputs.
+    # Attempts a job gets before a retryable failure becomes terminal
+    JOB_RETRY_MAX_ATTEMPTS: int = 3
+
+    # ----- Athena / Glue
+    ATHENA_DATABASE_NAME: str
+    # Anchor for the inventory tables' `dt` partition projection. Its time of day
+    # must match the hour S3 delivers inventory reports.
+    ATHENA_INVENTORY_START_DATETIME: dt.datetime
+    # Start of the `year_month` partition projection range
+    YEAR_MONTH_PARTITION_START: str = "2013-01"
 
     # ----- AWS Batch cluster
     # Reference to the SSM parameter describing the AMI _or_ the AMI ID itself.

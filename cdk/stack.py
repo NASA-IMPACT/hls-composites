@@ -9,7 +9,7 @@ from aws_cdk import (
 )
 from constructs import Construct
 
-from hls_constructs import BatchInfra, BatchJob
+from hls_constructs import BatchInfra, BatchJob, JobMonitoring
 from settings import StackSettings
 
 
@@ -96,6 +96,22 @@ class HlsCompositesStack(Stack):
                     actions=["sts:AssumeRole"],
                 )
             )
+
+        # ----------------------------------------------------------------------
+        # Job monitoring
+        # ----------------------------------------------------------------------
+        self.monitoring = JobMonitoring(
+            self,
+            "Monitoring",
+            job_queue=self.batch_infra.queue,
+            job_definition=self.processing_job.job_def,
+            processing_bucket_name=settings.PROCESSING_BUCKET_NAME,
+            retry_max_attempts=settings.JOB_RETRY_MAX_ATTEMPTS,
+            stage=settings.STAGE,
+            database_name=settings.ATHENA_DATABASE_NAME,
+            inventory_start_datetime=settings.ATHENA_INVENTORY_START_DATETIME,
+            year_month_start=settings.YEAR_MONTH_PARTITION_START,
+        )
 
         CfnOutput(
             self,
