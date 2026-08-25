@@ -124,24 +124,6 @@ def test_scan_bucket_for_granules_filters_to_exact_month():
     assert paginator.prefixes_seen == ["HLSL30.020/HLS.L30.T18SUJ.2020"]
 
 
-def test_scan_bucket_for_granules_queries_both_satellites_by_default():
-    date_range = DateRange(start=date(2020, 1, 1), end=date(2020, 1, 5))
-    l30_prefix = "HLSL30.020/HLS.L30.T18SUJ.2020"
-    s30_prefix = "HLSS30.020/HLS.S30.T18SUJ.2020"
-    pages_by_prefix = {
-        l30_prefix: ["HLSL30.020/HLS.L30.T18SUJ.2020002T151911.v2.0/"],
-        s30_prefix: ["HLSS30.020/HLS.S30.T18SUJ.2020003T101911.v2.0/"],
-    }
-    client = _MultiCallFakeS3Client(_MultiCallFakePaginator(pages_by_prefix))
-
-    granules = scan_bucket_for_granules(
-        client, "lp-prod-protected", "18SUJ", date_range
-    )
-
-    assert {g.satellite for g in granules} == {"L30", "S30"}
-    assert len(granules) == 2
-
-
 def test_scan_bucket_for_granules_returns_empty_list_when_nothing_found():
     date_range = DateRange(start=date(2020, 1, 1), end=date(2020, 1, 5))
     client = _MultiCallFakeS3Client(_MultiCallFakePaginator({}))

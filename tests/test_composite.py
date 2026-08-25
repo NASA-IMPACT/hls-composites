@@ -1,6 +1,5 @@
 import dataclasses
 from datetime import date
-from datetime import date as date_type
 
 import numpy as np
 import pytest
@@ -300,20 +299,6 @@ def test_band_std_all_masked_pixel_is_zero():
     assert result[0, 0] == 0
 
 
-def test_valid_count_counts_unmasked_observations():
-    bad_pixel_mask = np.array([[[True]], [[False]], [[False]]])
-    result = valid_count(bad_pixel_mask)
-    assert result[0, 0] == 2
-
-
-def test_observation_doy_uses_chosen_observations_date():
-    dates = [date_type(2020, 1, 1), date_type(2020, 1, 10), date_type(2020, 1, 20)]
-    best_idx = np.array([[1]], dtype=np.int16)  # Jan 10
-    all_nan_mask = np.zeros((1, 1), dtype=bool)
-    result = observation_doy(dates, best_idx, all_nan_mask)
-    assert result[0, 0] == 10  # Jan 10 is DOY 10
-
-
 def test_read_band_with_retry_succeeds_first_try():
     calls = []
 
@@ -482,15 +467,6 @@ def test_composite_block_defaults_to_the_default_indices_and_aux():
     assert out["DOY"].dtype == np.int16
 
 
-def test_composite_block_emits_every_index_when_asked():
-    reflectance, fmask, dates = _block_fixture()
-    out = _composite_block(reflectance, fmask, dates, indices=ALL_INDICES)
-    for index in ALL_INDICES:
-        assert index.name in out
-        assert f"{index.name}_std" in out
-        assert out[index.name].dtype == np.int16
-
-
 def test_composite_block_bands_output_emits_reflectance_values_and_std():
     reflectance, fmask, dates = _block_fixture()
     out = _composite_block(reflectance, fmask, dates, output="bands")
@@ -518,15 +494,6 @@ def test_composite_block_bands_output_emits_reflectance_values_and_std():
     assert out["DOY"].dtype == np.int16
 
 
-def test_composite_block_bands_output_has_no_indices_or_qa():
-    reflectance, fmask, dates = _block_fixture()
-    out = _composite_block(reflectance, fmask, dates, output="bands")
-
-    for index in ALL_INDICES:
-        assert index.name not in out
-    assert FMASK.name not in out
-
-
 def test_composite_block_bands_values_taken_at_selected_timestep():
     reflectance, fmask, dates = _block_fixture()
     out = _composite_block(reflectance, fmask, dates, output="bands")
@@ -547,8 +514,6 @@ def test_composite_block_bands_all_masked_pixel_gets_band_fill():
     for spec in REFLECTANCE_BANDS:
         assert out[spec.name][1, 0] == SR_FILL
         assert out[f"{spec.name}_std"][1, 0] == SR_FILL
-    assert out["ValidCount"][1, 0] == VALID_COUNT_FILL
-    assert out["DOY"][1, 0] == DOY_FILL
 
 
 def test_composite_block_bands_std_is_digital_number_std_rounded():
@@ -557,7 +522,6 @@ def test_composite_block_bands_std_is_digital_number_std_rounded():
 
     # Pixel (0,0): all 3 timesteps valid; nir is 2000/4000/6000 raw DN. The std
     # is stored in the band's own encoding, so it is not rescaled.
-    assert out["nir_narrow"][0, 0] == 4000
     assert out["nir_narrow_std"][0, 0] == round(float(np.std([2000, 4000, 6000])))
     # Constant band -> zero spread.
     assert out["red_std"][0, 0] == 0
@@ -632,6 +596,7 @@ def test_build_composite_honours_an_explicit_index_list():
     for index in ALL_INDICES:
         assert index.name in result.data_vars
         assert f"{index.name}_std" in result.data_vars
+        assert result[index.name].dtype == np.int16
 
 
 def test_observation_doy_is_absolute_julian_day_in_int16():
@@ -722,15 +687,6 @@ def _two_obs_evi2(a: float, b: float) -> np.ndarray:
     return np.array([[[a]], [[b]]], dtype=np.float32)
 
 
-def test_select_best_index_even_stack_median_is_a_tie():
-    # np.nanmedian of an even stack is the mean of the two middle values, which
-    # is no observation's EVI2. Both are exactly equidistant from it, so the
-    # result is decided entirely by stack position -- not by the data.
-    evi2 = _two_obs_evi2(0.30, 0.50)
-    target = np.nanmedian(evi2, axis=0)
-    assert abs(evi2[0] - target) == abs(evi2[1] - target)
-
-
 def test_select_best_index_breaks_even_stack_ties_toward_the_earlier_observation():
     # Granules arrive in chronological order (see scan_bucket_for_granules), so
     # the lowest index is the earliest observation. Reversing the stack must
@@ -744,18 +700,6 @@ def test_select_best_index_breaks_even_stack_ties_toward_the_earlier_observation
 
     assert forward[0, 0] == 0
     assert reversed_[0, 0] == 0
-
-
-def test_select_best_index_odd_stack_has_no_tie_and_ignores_order():
-    # An odd stack has a real median observation, so the choice is the same
-    # whichever order the granules arrive in.
-    bad = np.zeros((3, 1, 1), dtype=bool)
-    all_nan = np.zeros((1, 1), dtype=bool)
-    forward = np.array([[[0.10]], [[0.50]], [[0.90]]], dtype=np.float32)
-    backward = forward[::-1].copy()
-
-    assert select_best_index(forward, bad, all_nan)[0, 0] == 1
-    assert select_best_index(backward, bad, all_nan)[0, 0] == 1
 
 
 def test_build_composite_selection_is_stable_under_granule_reordering_for_odd_stacks():

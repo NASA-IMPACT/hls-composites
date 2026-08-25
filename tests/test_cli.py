@@ -1,5 +1,6 @@
 from datetime import date
 
+import pytest
 from click.testing import CliRunner
 
 from hls_composites import cli
@@ -143,40 +144,20 @@ def _invoke(tmp_path, *extra):
     )
 
 
-def test_cli_defaults_to_index_output(monkeypatch, tmp_path):
+@pytest.mark.parametrize(
+    ("flags", "expected"),
+    [((), "indexes"), (("--indexes",), "indexes"), (("--bands",), "bands")],
+)
+def test_cli_flags_select_the_composite_output(monkeypatch, tmp_path, flags, expected):
     captured: dict = {}
     _patch_pipeline(
         monkeypatch, captured, [Granule("s3://b/g", "L30", date(2015, 7, 10))]
     )
 
-    result = _invoke(tmp_path)
+    result = _invoke(tmp_path, *flags)
 
     assert result.exit_code == 0, result.output
-    assert captured["build_kwargs"]["output"] == "indexes"
-
-
-def test_cli_indexes_flag_is_explicit_default(monkeypatch, tmp_path):
-    captured: dict = {}
-    _patch_pipeline(
-        monkeypatch, captured, [Granule("s3://b/g", "L30", date(2015, 7, 10))]
-    )
-
-    result = _invoke(tmp_path, "--indexes")
-
-    assert result.exit_code == 0, result.output
-    assert captured["build_kwargs"]["output"] == "indexes"
-
-
-def test_cli_bands_flag_selects_band_output(monkeypatch, tmp_path):
-    captured: dict = {}
-    _patch_pipeline(
-        monkeypatch, captured, [Granule("s3://b/g", "L30", date(2015, 7, 10))]
-    )
-
-    result = _invoke(tmp_path, "--bands")
-
-    assert result.exit_code == 0, result.output
-    assert captured["build_kwargs"]["output"] == "bands"
+    assert captured["build_kwargs"]["output"] == expected
 
 
 def test_cli_rejects_bands_and_indexes_together(monkeypatch, tmp_path):
