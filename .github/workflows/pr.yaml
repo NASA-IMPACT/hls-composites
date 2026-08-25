@@ -16,8 +16,9 @@ jobs:
         with:
           enable-cache: true
 
+      # The deploy group carries the CDK dependencies that cdk/ and tests/cdk/ need.
       - name: Install dependencies
-        run: uv sync --frozen
+        run: uv sync --frozen --group deploy
 
       # scripts/* are the single source of truth for these commands.
       - name: Lint
@@ -28,3 +29,15 @@ jobs:
 
       - name: Test
         run: ./scripts/test
+
+  deploy-dev:
+    # Deploy to dev only on push (including merged PR) to `main`.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: checks
+    permissions:
+      id-token: write
+      contents: read
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: dev
+    secrets: inherit

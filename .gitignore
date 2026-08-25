@@ -14,4 +14,10 @@ wheels/
 
 # Local dev
 .env
+.env.*
+!.env.example
 out/
+
+# CDK
+cdk.context.json
+cdk.out/
