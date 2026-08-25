@@ -33,14 +33,19 @@ from hls_composites.composite import (
     compute_all_nan_mask,
     compute_bad_pixel_mask,
     compute_basic_mask,
-    compute_evi2,
     compute_out_of_range_mask,
     observation_doy,
     read_band_with_retry,
     select_best_index,
+    to_reflectance,
     valid_count,
 )
-from hls_composites.indices import ALL_INDICES, DEFAULT_INDICES, NDVI
+from hls_composites.indices import (
+    ALL_INDICES,
+    DEFAULT_INDICES,
+    NDVI,
+    SELECTION_INDEX,
+)
 from hls_composites.models import Granule
 
 
@@ -225,11 +230,13 @@ def test_all_nan_mask_true_only_when_every_timestep_bad():
     assert compute_all_nan_mask(bad_pixel_mask)[0, 0] == False
 
 
-def test_compute_evi2_known_value():
+def test_selection_index_known_value():
     # red=0.1, nir=0.4 (scaled) -> EVI2 = 2.5*(0.4-0.1)/(0.4+2.4*0.1+1) = 0.75/1.64
-    red = np.array([[[1000]]], dtype=np.int16)
-    nir = np.array([[[4000]]], dtype=np.int16)
-    evi2 = compute_evi2(red, nir)
+    digital_numbers = {
+        RED: np.array([[[1000]]], dtype=np.int16),
+        NIR_NARROW: np.array([[[4000]]], dtype=np.int16),
+    }
+    evi2 = SELECTION_INDEX(to_reflectance(digital_numbers, SELECTION_INDEX.bands))
     assert evi2[0, 0, 0] == pytest.approx(0.75 / 1.64, rel=1e-5)
 
 

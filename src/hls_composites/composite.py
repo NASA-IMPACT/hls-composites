@@ -13,13 +13,12 @@ import xarray as xr
 from hls_composites.bands import (
     DEFAULT_BANDS,
     FMASK,
-    NIR_NARROW,
     QA_FILL,
-    RED,
     SPEC_BY_BAND,
+    Band,
     BandSpec,
 )
-from hls_composites.indices import DEFAULT_INDICES, Index
+from hls_composites.indices import DEFAULT_INDICES, SELECTION_INDEX, Index
 from hls_composites.models import Granule
 
 CompositeOutput = Literal["indexes", "bands"]
@@ -171,25 +170,29 @@ def compute_all_nan_mask(bad_pixel_mask: np.ndarray) -> np.ndarray:
     return np.all(bad_pixel_mask, axis=0)
 
 
-def compute_evi2(red: np.ndarray, nir: np.ndarray) -> np.ndarray:
-    """Compute the two-band Enhanced Vegetation Index (EVI2).
+def to_reflectance(
+    digital_numbers: dict[BandSpec, np.ndarray], bands: tuple[Band, ...]
+) -> dict[Band, np.ndarray]:
+    """Scale the requested bands' digital numbers to physical reflectance.
 
     Parameters
     ----------
-    red : numpy.ndarray
-        Red band stack, unscaled digital numbers.
-    nir : numpy.ndarray
-        Near-infrared (narrow) band stack, unscaled digital numbers,
-        same shape as `red`.
+    digital_numbers : dict of BandSpec to numpy.ndarray
+        Raw band stacks, shaped `(T, Y, X)`, keyed by their `BandSpec`.
+    bands : tuple of Band
+        Spectral bands to convert, e.g. an `Index`'s `bands`.
 
     Returns
     -------
-    numpy.ndarray
-        EVI2 values, same shape as `red`, as `float32`.
+    dict of Band to numpy.ndarray
+        `float32` reflectance stacks keyed by spectral `Band`, ready to
+        pass to an `Index`.
     """
-    red_r = red.astype(np.float32) * RED.scale
-    nir_r = nir.astype(np.float32) * NIR_NARROW.scale
-    return 2.5 * (nir_r - red_r) / (nir_r + 2.4 * red_r + 1)
+    return {
+        band: digital_numbers[SPEC_BY_BAND[band]].astype(np.float32)
+        * SPEC_BY_BAND[band].scale
+        for band in bands
+    }
 
 
 def select_best_index(
@@ -438,7 +441,7 @@ def _composite_block(
     """
     bad = compute_bad_pixel_mask(reflectance, fmask)
     all_nan = compute_all_nan_mask(bad)
-    evi2 = compute_evi2(reflectance[RED], reflectance[NIR_NARROW])
+    evi2 = SELECTION_INDEX(to_reflectance(reflectance, SELECTION_INDEX.bands))
     best_idx = select_best_index(evi2, bad, all_nan)
 
     out: dict[str, np.ndarray] = {}
@@ -451,11 +454,7 @@ def _composite_block(
             )
     else:
         for index in indices:
-            per_timestep = {
-                band: reflectance[SPEC_BY_BAND[band]].astype(np.float32)
-                * SPEC_BY_BAND[band].scale
-                for band in index.bands
-            }
+            per_timestep = to_reflectance(reflectance, index.bands)
             stack = np.where(bad, np.nan, index(per_timestep))
             value = np.take_along_axis(stack, best_idx[None, :, :], axis=0)[0]
             with np.errstate(all="ignore"):

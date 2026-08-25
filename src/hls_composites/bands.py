@@ -1,9 +1,9 @@
 """Spectral bands and HLS asset band specifications.
 
-`Band` is the instrument-agnostic spectral band vocabulary (what a wavelength
-*is*); `BandSpec` describes one HLS asset (how to read it, encode it, and which
-spectral `Band` it supplies). Both the index definitions (`indices.py`) and the
-composite pipeline (`composite.py`) build on these.
+- `Band` is the instrument-agnostic spectral band vocabulary (what a wavelength *is*)
+- `BandSpec` describes one HLS asset (how to read it, encode it, and which spectral `Band` it supplies)
+
+Both the index definitions (`indices.py`) and the composite pipeline (`composite.py`) build on these.
 """
 
 from dataclasses import dataclass, field
