@@ -1,0 +1,56 @@
+[project]
+name = "hls-composites"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Chris Holden", email = "ceholden@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "boto3>=1.35.0",
+    "click>=8.1.0",
+    "dask>=2025.10.0",
+    "numpy>=2.1.0",
+    "rasterio>=1.4.3",
+    "rioxarray>=0.17.0",
+    "xarray>=2025.1.0",
+]
+
+[project.scripts]
+hls-composites = "hls_composites.cli:main"
+
+[dependency-groups]
+dev = [
+    "boto3-stubs[s3]>=1.35.0",
+    "mypy>=2.3.0",
+    "pytest>=8.3.0",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.16.0",
+]
+seed = [
+    "earthaccess>=0.18.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.10,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.ruff.lint]
+# HLS granule IDs encode date-only day-of-year; naive datetimes are intentional.
+ignore = ["DTZ007"]
+
+[tool.mypy]
+files = ["src"]
+python_version = "3.12"
+
+[[tool.mypy.overrides]]
+module = ["rasterio.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+# Fully-masked pixels legitimately trip these in nanmedian/nanstd.
+filterwarnings = [
+    "ignore:All-NaN slice encountered:RuntimeWarning",
+    "ignore:Degrees of freedom <= 0:RuntimeWarning",
+]

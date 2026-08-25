@@ -1,0 +1,77 @@
+name: Build and Push Pull Requests to ECR
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write # required for requesting the JWT (for OIDC)
+  contents: read  # required for actions/checkout
+
+env:
+  AWS_REGION: ${{ vars.AWS_DEFAULT_REGION || 'us-west-2' }}
+  ECR_REPOSITORY: hls-composites
+  BUILD_PLATFORM: linux/amd64
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    # Gates credential issuance behind environment approval, and makes the OIDC
+    # subject claim ":environment:ecr-push" rather than ":pull_request".
+    environment: ecr-push
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME_ARN }}
+          role-session-name: ${{ github.actor }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}
+          tags: |
+            type=ref,event=pr,prefix=pr-
+            type=sha,prefix=sha-
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: ${{ env.BUILD_PLATFORM }}
+          load: true  # Puts the image in 'docker images' for the next step
+          provenance: false
+          sbom: false
+          target: prod
+          tags: ${{ env.ECR_REPOSITORY }}:local
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test the image
+        run: docker run --rm ${{ env.ECR_REPOSITORY }}:local --help
+
+      - name: Push to ECR
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          while IFS= read -r tag; do
+            docker tag ${{ env.ECR_REPOSITORY }}:local "$tag"
+            docker push "$tag"
+          done <<< "$TAGS"
