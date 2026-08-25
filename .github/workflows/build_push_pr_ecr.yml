@@ -20,6 +20,9 @@ env:
 jobs:
   build-push:
     runs-on: ubuntu-latest
+    # Gates credential issuance behind environment approval, and makes the OIDC
+    # subject claim ":environment:ecr-push" rather than ":pull_request".
+    environment: ecr-push
 
     steps:
       - uses: actions/checkout@v4
