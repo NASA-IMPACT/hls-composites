@@ -14,6 +14,7 @@ from aws_cdk import (
     RemovalPolicy,
     aws_batch as batch,
     aws_glue as glue,
+    aws_sqs as sqs,
 )
 from batch_event_job_monitor.models import RetryPolicy
 from batch_event_job_monitor_cdk import (
@@ -102,8 +103,9 @@ class JobMonitoring(Construct):
         retry_max_attempts:
             Attempts a job gets before a retryable failure becomes terminal.
         stage:
-            Deployment stage. A `dev` processing bucket is emptied and deleted
-            with its stack; anything else keeps its processing history.
+            Deployment stage. A `dev` processing bucket and its monitoring
+            queues are emptied and deleted with the stack; anything else keeps
+            its processing history and any undelivered messages.
         database_name:
             Glue database holding the records, state, and outputs tables.
         inventory_start_datetime:
@@ -114,6 +116,13 @@ class JobMonitoring(Construct):
         super().__init__(scope, construct_id, **kwargs)
 
         is_dev = stage == "dev"
+        # Dev tears down with its stack; anything else keeps its evidence.
+        removal_policy = (
+            RemovalPolicy.DESTROY
+            if is_dev
+            else RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE
+        )
+
         self.processing_bucket = ProcessingBucket(
             self,
             "ProcessingBucket",
@@ -123,17 +132,18 @@ class JobMonitoring(Construct):
                 (STATE_INVENTORY_ID, "state/"),
                 (OUTPUTS_INVENTORY_ID, "outputs/"),
             ],
-            removal_policy=(
-                RemovalPolicy.DESTROY
-                if is_dev
-                else RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE
-            ),
+            removal_policy=removal_policy,
             auto_delete_objects=is_dev,
         )
 
         # Retry, both dead-letter queues, and the untracked-job queue, with
         # redrive wired between the retry queue and its own DLQ.
-        self.queues = MonitoringQueues(self, "Queues")
+        self.queues = MonitoringQueues(
+            self,
+            "Queues",
+            encryption=sqs.QueueEncryption.SQS_MANAGED,
+            removal_policy=removal_policy,
+        )
 
         self.job_type_configs = {
             JOB_TYPE: job_type_config(

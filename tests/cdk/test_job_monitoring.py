@@ -70,6 +70,9 @@ def test_every_failure_path_has_a_queue(template):
     queues = resources_of(template, "AWS::SQS::Queue")
 
     assert len(queues) == 5
+    # Encrypted at rest with SQS-managed keys. CDK omits this property unless
+    # asked, so it has to be set explicitly rather than left to the default.
+    assert all(queue["Properties"]["SqsManagedSseEnabled"] for queue in queues)
     # These queues exist to preserve evidence, so nothing expires early.
     assert all(
         queue["Properties"]["MessageRetentionPeriod"] == 1209600 for queue in queues
