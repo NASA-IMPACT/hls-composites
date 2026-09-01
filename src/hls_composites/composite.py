@@ -326,14 +326,21 @@ def observation_doy(
 
 
 def _encode_index(
-    values: np.ndarray, index: Index, all_nan_mask: np.ndarray
+    values: np.ndarray,
+    index: Index,
+    all_nan_mask: np.ndarray,
+    bounds: tuple[float, float] | None = None,
 ) -> np.ndarray:
     """Scale a raw float index (or its std) to its int16 storage encoding.
 
-    Applies `index.scale_factor` (values are divided by it, matching the
-    HLS-VI convention), clips to the int16 range, rounds, and writes
-    `index.fill_value` where the pixel has no valid observation or the raw
-    value is non-finite.
+    Clips in physical units to `bounds`, applies `index.scale_factor`, rounds,
+    and writes `index.fill_value` where the pixel has no valid observation or
+    the raw value is non-finite.
+
+    Clipping before scaling is what keeps an ill-conditioned index within
+    int16 range. For example, EVI's denominator approaches zero for some
+    reflectance combinations, and an unclipped cast of the resulting large
+    value wraps around, flipping its sign.
 
     Parameters
     ----------
@@ -344,17 +351,21 @@ def _encode_index(
         `fill_value`).
     all_nan_mask : numpy.ndarray
         Boolean mask, shaped `(Y, X)` (see `compute_all_nan_mask`).
+    bounds : tuple of float, optional
+        Physical-unit `(low, high)` to clip to. Defaults to the index's own
+        `valid_min`/`valid_max`. A standard deviation passes its own bounds,
+        since it is non-negative and cannot exceed the width of the range its
+        values were clipped to.
 
     Returns
     -------
     numpy.ndarray
         `int16` encoded values, shaped `(Y, X)`.
     """
-    scaled = values / index.scale_factor
-    invalid = all_nan_mask | ~np.isfinite(scaled)
-    info = np.iinfo(np.int16)
-    clipped = np.clip(np.where(invalid, 0, scaled), info.min, info.max)
-    out = np.round(clipped).astype(np.int16)
+    low, high = bounds if bounds is not None else (index.valid_min, index.valid_max)
+    invalid = all_nan_mask | ~np.isfinite(values)
+    clipped = np.clip(np.where(invalid, 0.0, values), low, high)
+    out = np.round(clipped / index.scale_factor).astype(np.int16)
     out[invalid] = index.fill_value
     return out
 
@@ -460,7 +471,9 @@ def _composite_block(
             with np.errstate(all="ignore"):
                 std = np.nanstd(stack, axis=0)
             out[index.name] = _encode_index(value, index, all_nan)
-            out[f"{index.name}_std"] = _encode_index(std, index, all_nan)
+            out[f"{index.name}_std"] = _encode_index(
+                std, index, all_nan, bounds=(0.0, index.valid_max - index.valid_min)
+            )
 
     out["ValidCount"] = valid_count(bad)
     out["DOY"] = observation_doy(dates, best_idx, all_nan)

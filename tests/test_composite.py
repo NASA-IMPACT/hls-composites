@@ -25,6 +25,7 @@ from hls_composites.composite import (
     QA_BIT,
     VALID_COUNT_FILL,
     _composite_block,
+    _encode_index,
     asset_url,
     band_std,
     build_composite,
@@ -42,6 +43,7 @@ from hls_composites.composite import (
 from hls_composites.indices import (
     ALL_INDICES,
     DEFAULT_INDICES,
+    EVI,
     NDVI,
     SELECTION_INDEX,
 )
@@ -722,3 +724,68 @@ def test_build_composite_selection_is_stable_under_granule_reordering_for_odd_st
 
     np.testing.assert_array_equal(forward["DOY"].values, shuffled["DOY"].values)
     np.testing.assert_array_equal(forward["NDVI"].values, shuffled["NDVI"].values)
+
+
+class TestIndexClipping:
+    """Encoding clips to each index's own valid range, never to the int16 bounds.
+
+    EVI's denominator goes to zero for some reflectance combinations, so the raw
+    value can be arbitrarily large. Scaled by 1e-4 that overflows int16, and an
+    unclipped cast wraps around -- turning a large positive value into a negative
+    one. Clipping to the index's physical range keeps the error bounded.
+    """
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            (6.2279, 10000),  # would wrap to -3257 if cast unclipped
+            (-6.9043, -10000),  # would wrap to -3507
+            (4.5571, 10000),
+            (1.0, 10000),  # exactly at the bound, untouched
+            (-1.0, -10000),
+            (0.5, 5000),  # inside the range, untouched
+        ],
+    )
+    def test_value_is_clipped_to_the_index_range(self, raw, expected):
+        values = np.array([[raw]], dtype=np.float64)
+        out = _encode_index(values, EVI(), np.zeros((1, 1), dtype=bool))
+
+        assert out[0, 0] == expected
+
+    def test_out_of_range_values_never_change_sign(self):
+        """The prototype's failure mode: int16 wraparound flips the sign."""
+        raw = np.array([[6.2279, -6.9043, 7.2791, -5.4036]], dtype=np.float64)
+        out = _encode_index(raw, EVI(), np.zeros(raw.shape, dtype=bool))
+
+        assert np.all(np.sign(out) == np.sign(raw))
+
+    def test_encoded_values_stay_within_the_scaled_range(self):
+        index = EVI()
+        raw = np.array([[50.0, -50.0, 0.0, 1e6, -1e6]], dtype=np.float64)
+        out = _encode_index(raw, index, np.zeros(raw.shape, dtype=bool))
+
+        assert out.min() >= round(index.valid_min / index.scale_factor)
+        assert out.max() <= round(index.valid_max / index.scale_factor)
+
+    def test_std_is_clipped_to_the_range_width(self):
+        """A std cannot exceed the width of the range its values are clipped to."""
+        index = EVI()
+        raw = np.array([[99.0]], dtype=np.float64)
+        out = _encode_index(raw, index, np.zeros((1, 1), dtype=bool), bounds=(0.0, 2.0))
+
+        assert out[0, 0] == round(2.0 / index.scale_factor)
+
+    def test_fill_still_wins_over_clipping(self):
+        index = EVI()
+        raw = np.array([[99.0]], dtype=np.float64)
+        out = _encode_index(raw, index, np.ones((1, 1), dtype=bool))
+
+        assert out[0, 0] == index.fill_value
+
+    def test_every_index_declares_its_own_bounds(self):
+        """Bounds are per-index even where they currently coincide."""
+        for index in ALL_INDICES:
+            assert index.valid_min < index.valid_max
+            # Both must fit the scaled encoding.
+            assert index.valid_min / index.scale_factor >= np.iinfo(np.int16).min
+            assert index.valid_max / index.scale_factor <= np.iinfo(np.int16).max
