@@ -50,9 +50,9 @@ class BatchJob(Construct):
         log_group_name: str,
         log_retention: logs.RetentionDays,
         job_role_name: str,
+        job_definition_name: str,
         environment: dict[str, str] | None = None,
         secrets: dict[str, batch.Secret] | None = None,
-        stage: str,
         **kwargs: Any,
     ) -> None:
         """Set up a CloudWatch log group, IAM roles, and an AWS Batch job definition.
@@ -80,8 +80,10 @@ class BatchJob(Construct):
             Environment variables set on the container.
         secrets:
             Secrets exposed to the container as environment variables.
-        stage:
-            Deployment stage, carried into the JobDefinition's construct id.
+        job_definition_name:
+            Name of the job definition family. Named explicitly so submitters
+            can refer to it without looking up an ARN, and so each deploy
+            registers a new revision of one family rather than a new family.
         """
         super().__init__(scope, construct_id, **kwargs)
 
@@ -138,7 +140,8 @@ class BatchJob(Construct):
 
         self.job_def = batch.EcsJobDefinition(
             self,
-            f"JobDef{stage.capitalize()}",
+            "JobDef",
+            job_definition_name=job_definition_name,
             container=batch.EcsEc2ContainerDefinition(
                 self,
                 "BatchContainerDef",

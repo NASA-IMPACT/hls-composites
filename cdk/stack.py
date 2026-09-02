@@ -83,8 +83,8 @@ class HlsCompositesStack(Stack):
             log_group_name=settings.PROCESSING_LOG_GROUP_NAME,
             log_retention=settings.PROCESSING_LOG_RETENTION,
             job_role_name=f"hls-composites-processing-role-{settings.STAGE}",
+            job_definition_name=f"hls-composites-{settings.STAGE}-job-definition",
             environment=environment,
-            stage=settings.STAGE,
         )
 
         self.input_bucket.grant_read(self.processing_job.role)
