@@ -1,6 +1,7 @@
 import datetime as dt
 from typing import Annotated, Any, Literal
 
+from aws_cdk import aws_logs as logs
 from pydantic import BeforeValidator
 from pydantic_settings import BaseSettings, NoDecode
 
@@ -57,7 +58,7 @@ class StackSettings(BaseSettings):
     PROCESSING_JOB_TIMEOUT_HOURS: int = 2
     # Custom log group (otherwise logs land in the catch-all AWS Batch log group)
     PROCESSING_LOG_GROUP_NAME: str
-    PROCESSING_LOG_RETENTION_DAYS: int = 30
+    PROCESSING_LOG_RETENTION: logs.RetentionDays = logs.RetentionDays.ONE_MONTH
 
     # ----- Job monitoring
     # The monitoring queues are created and named by the MonitoringQueues

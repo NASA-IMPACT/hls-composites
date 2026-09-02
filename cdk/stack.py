@@ -74,16 +74,17 @@ class HlsCompositesStack(Stack):
 
         self.processing_job = BatchJob(
             self,
-            "Processing",
+            "HLSCompositeProcessing",
             container_ecr_uri=settings.PROCESSING_CONTAINER_ECR_URI,
             vcpu=settings.PROCESSING_JOB_VCPU,
             memory_mb=settings.PROCESSING_JOB_MEMORY_MB,
             retry_attempts=settings.PROCESSING_JOB_RETRY_ATTEMPTS,
             timeout_hours=settings.PROCESSING_JOB_TIMEOUT_HOURS,
             log_group_name=settings.PROCESSING_LOG_GROUP_NAME,
-            log_retention_days=settings.PROCESSING_LOG_RETENTION_DAYS,
+            log_retention=settings.PROCESSING_LOG_RETENTION,
             job_role_name=f"hls-composites-processing-role-{settings.STAGE}",
             environment=environment,
+            stage=settings.STAGE,
         )
 
         self.input_bucket.grant_read(self.processing_job.role)

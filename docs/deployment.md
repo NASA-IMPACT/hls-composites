@@ -17,7 +17,7 @@ The AWS Batch infrastructure that runs the `hls-composites` container lives in `
 | Batch service role  | `AWSBatchServiceRole` + `AmazonSSMReadOnlyAccess`                           |
 | Execution role      | Pulls the image from ECR and ships logs                                     |
 | Job role            | `hls-composites-processing-role-{stage}` -- the container's own credentials |
-| Log group           | `PROCESSING_LOG_GROUP_NAME`, `PROCESSING_LOG_RETENTION_DAYS` retention      |
+| Log group           | `PROCESSING_LOG_GROUP_NAME`, `PROCESSING_LOG_RETENTION` retention      |
 
 You can submit jobs manually using AWS CLI for backfills or testing:
 
