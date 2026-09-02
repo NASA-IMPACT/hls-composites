@@ -52,11 +52,12 @@ class HlsCompositesStack(Stack):
         # ----------------------------------------------------------------------
         self.batch_infra = BatchInfra(
             self,
-            "Infra",
+            "HLSCompositeCompute",
             vpc=self.vpc,
             instance_classes=settings.BATCH_INSTANCE_CLASSES,
             max_vcpu=settings.BATCH_MAX_VCPU,
             ami_id=settings.MCP_AMI_ID,
+            stage=settings.STAGE,
             job_queue_name=f"hls-composites-{settings.STAGE}-job-queue",
         )
 

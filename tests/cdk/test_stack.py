@@ -165,6 +165,7 @@ def test_log_group_is_explicit(template):
 
 
 def test_job_role_has_a_stable_name(template):
+    """Pinned: other accounts name this role in their trust policies."""
     template.has_resource_properties(
         "AWS::IAM::Role",
         assertions.Match.object_like(
