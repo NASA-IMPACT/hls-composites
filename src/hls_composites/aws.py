@@ -10,6 +10,8 @@ neither sees a boto3 session nor inherits a `rasterio.Env` from the main thread.
 Environment variables are read by both, from any thread.
 """
 
+from __future__ import annotations
+
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -29,10 +31,6 @@ CREDENTIAL_ENV_VARS = (
 """The variables GDAL and botocore both read credentials from."""
 
 DEFAULT_SESSION_NAME = "hls-composites"
-
-
-def _sts_client():  # pragma: no cover - trivial, replaced in tests
-    return boto3.client("sts")
 
 
 @contextmanager
@@ -68,7 +66,7 @@ def assumed_role_env(
         return
 
     try:
-        response = _sts_client().assume_role(
+        response = boto3.client("sts").assume_role(
             RoleArn=role_arn, RoleSessionName=session_name
         )
     except Exception as error:
@@ -94,7 +92,7 @@ def assumed_role_env(
 
 
 def upload_directory(
-    s3_client: "S3Client", local_dir: Path, bucket: str, prefix: str
+    s3_client: S3Client, local_dir: Path, bucket: str, prefix: str
 ) -> list[str]:
     """Upload every file under `local_dir` to `bucket` beneath `prefix`.
 
