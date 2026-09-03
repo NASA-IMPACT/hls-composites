@@ -12,6 +12,7 @@ dependencies = [
     "click>=8.1.0",
     "dask>=2025.10.0",
     "numpy>=2.1.0",
+    "pystac>=1.12",
     "rasterio>=1.4.3",
     "rioxarray>=0.17.0",
     "xarray>=2025.1.0",
@@ -23,6 +24,9 @@ hls-composites = "hls_composites.cli:main"
 [dependency-groups]
 dev = [
     "boto3-stubs[s3]>=1.35.0",
+    # The validation extra is dev-only: pystac fetches extension schemas over
+    # HTTP, and the Batch compute environment has no route to the internet.
+    "pystac[validation]>=1.12",
     "moto[sts]>=5.0",
     "mypy>=2.3.0",
     "pytest>=8.3.0",

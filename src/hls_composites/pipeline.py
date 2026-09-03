@@ -18,6 +18,7 @@ from hls_composites.aws import assumed_role_env, upload_directory
 from hls_composites.composite import CompositeOutput, build_composite
 from hls_composites.discovery import scan_bucket_for_granules
 from hls_composites.io import composite_id, write_composite
+from hls_composites.metadata.writer import write_metadata
 from hls_composites.models import DateRange
 
 ProgressCallback = Callable[[str], None]
@@ -134,8 +135,12 @@ def create_composite(
                 composite = build_composite(granules, output=output)
                 dest = Path(write_composite(composite, work_dir, tile_id, date_range))
 
-        # FIXME: metadata
-        # FIXME: UMM-G
+        # CNM, the message that notifies ingest a granule is ready, is a
+        # separate follow-up. These documents describe the granule; CNM points
+        # at them.
+        if granules:
+            documents = write_metadata(tile_id, date_range, dest, inputs=granules)
+            on_progress(f"Wrote {len(documents)} metadata documents")
 
         if isinstance(destination, S3Destination):
             keys = upload_directory(
