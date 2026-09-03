@@ -37,9 +37,13 @@ def _sub(
     return element
 
 
-def _additional_attributes(meta: GranuleMetadata) -> list[tuple[str, str]]:
-    """Every AdditionalAttribute, in the order they are written."""
-    return [
+def _additional_attributes(meta: GranuleMetadata) -> list[tuple[str, list[str]]]:
+    """Every AdditionalAttribute and its values, in the order written.
+
+    Values are lists because ECHO-10 allows several per attribute, which is
+    how the daily products carry their source scene IDs.
+    """
+    single_valued: list[tuple[str, str]] = [
         ("PRODUCT_URI", f"{PRODUCT_URI_BASE}/{meta.granule_id}"),
         ("MGRS_TILE_ID", meta.tile_id),
         ("SPATIAL_COVERAGE", str(meta.spatial_coverage)),
@@ -61,6 +65,12 @@ def _additional_attributes(meta: GranuleMetadata) -> list[tuple[str, str]]:
         ("IDENTIFIER_PRODUCT_DOI", DOI),
         ("IDENTIFIER_PRODUCT_DOI_AUTHORITY", DOI_AUTHORITY),
     ]
+    attributes: list[tuple[str, list[str]]] = [
+        (name, [value]) for name, value in single_valued
+    ]
+    if meta.inputs:
+        attributes.append(("INPUT_GRANULES", [item.granule_id for item in meta.inputs]))
+    return attributes
 
 
 def to_echo10(meta: GranuleMetadata) -> str:
@@ -117,11 +127,12 @@ def to_echo10(meta: GranuleMetadata) -> str:
         _sub(instrument, "ShortName", instrument_name)
 
     attributes = _sub(granule, "AdditionalAttributes")
-    for name, value in _additional_attributes(meta):
+    for name, attribute_values in _additional_attributes(meta):
         attribute = _sub(attributes, "AdditionalAttribute")
         _sub(attribute, "Name", name)
         values = _sub(attribute, "Values")
-        _sub(values, "Value", value)
+        for value in attribute_values:
+            _sub(values, "Value", value)
 
     _sub(granule, "OnlineAccessURLs")
     _sub(granule, "OnlineResources")

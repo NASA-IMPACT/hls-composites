@@ -139,7 +139,7 @@ def create_composite(
         # separate follow-up. These documents describe the granule; CNM points
         # at them.
         if granules:
-            documents = write_metadata(tile_id, date_range, dest)
+            documents = write_metadata(tile_id, date_range, dest, inputs=granules)
             on_progress(f"Wrote {len(documents)} metadata documents")
 
         if isinstance(destination, S3Destination):

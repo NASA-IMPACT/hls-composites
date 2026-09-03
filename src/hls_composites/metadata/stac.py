@@ -12,8 +12,14 @@ from typing import Any
 
 import pystac
 import rasterio
+from pystac.extensions.mgrs import MgrsExtension
 
-from hls_composites.metadata.models import DOI, PLACEHOLDER, GranuleMetadata
+from hls_composites.metadata.models import (
+    DOI,
+    PLACEHOLDER,
+    GranuleMetadata,
+    mgrs_fields,
+)
 
 PROJECTION_SCHEMA_URI = (
     "https://stac-extensions.github.io/projection/v1.2.0/schema.json"
@@ -72,6 +78,24 @@ def to_stac_item(meta: GranuleMetadata) -> dict[str, Any]:
     if DOI != PLACEHOLDER:
         item.stac_extensions.append(SCIENTIFIC_SCHEMA_URI)
         item.properties["sci:doi"] = DOI
+
+    zone, band, square = mgrs_fields(meta.tile_id)
+    mgrs = MgrsExtension.ext(item, add_if_missing=True)
+    mgrs.utm_zone = zone
+    mgrs.latitude_band = band
+    mgrs.grid_square = square
+
+    # Provenance: which HLS granules this composite was built from. A re-run
+    # over a period whose inputs have since changed produces a different list.
+    for source in meta.inputs:
+        item.add_link(
+            pystac.Link(
+                rel=pystac.RelType.DERIVED_FROM,
+                target=source.stac_href,
+                media_type=pystac.MediaType.JSON,
+                title=source.granule_id,
+            )
+        )
 
     for path in meta.assets:
         item.add_asset(

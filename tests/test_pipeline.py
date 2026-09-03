@@ -181,8 +181,12 @@ class TestMetadata:
     ):
         written: dict = {}
 
-        def fake_write_metadata(tile_id, date_range, granule_dir):
-            written.update(tile_id=tile_id, granule_dir=Path(granule_dir))
+        def fake_write_metadata(tile_id, date_range, granule_dir, inputs=None):
+            written.update(
+                tile_id=tile_id,
+                granule_dir=Path(granule_dir),
+                inputs=list(inputs or []),
+            )
             return []
 
         monkeypatch.setattr(pipeline, "write_metadata", fake_write_metadata)
@@ -191,6 +195,8 @@ class TestMetadata:
 
         assert written["tile_id"] == "14TPN"
         assert written["granule_dir"] == stages["write"]["dest"]
+        # Provenance: the discovered granules reach the metadata.
+        assert written["inputs"] == GRANULES
 
     def test_no_metadata_when_no_granules_were_found(
         self, stages, monkeypatch, tmp_path

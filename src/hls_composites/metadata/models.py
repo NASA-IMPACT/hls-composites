@@ -9,7 +9,8 @@ it, and reading the files describes what was actually produced.
 """
 
 import datetime as dt
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -19,7 +20,7 @@ from rasterio.warp import transform_bounds
 from hls_composites.composite import VALID_COUNT_FILL
 from hls_composites.indices import NDVI
 from hls_composites.io import composite_id
-from hls_composites.models import DateRange
+from hls_composites.models import DateRange, Granule
 
 PLACEHOLDER = "PLACEHOLDER"
 """Stands in for a value the DAAC has not assigned yet.
@@ -63,9 +64,74 @@ A composite mixes L30 and S30 sources, so unlike a daily granule it cannot
 name a single platform.
 """
 
+CMR_STAC_BASE = "https://cmr.earthdata.nasa.gov/stac/LPCLOUD/collections"
+"""Root of the CMR-STAC catalog the input granules are published in."""
+
+CMR_STAC_COLLECTIONS = {"L30": "HLSL30_2.0", "S30": "HLSS30_2.0"}
+"""CMR-STAC collection ID per HLS product, as spelled in the live catalog."""
+
+# Zone 1-60, latitude band excluding I and O, two-letter grid square.
+_MGRS_TILE = re.compile(r"^([0-9]{1,2})([C-HJ-NP-X])([A-Z]{2})$")
+
 # Densifying the edges before reprojecting keeps the lat/lon bounds tight:
 # a UTM rectangle's edges curve on the ellipsoid.
 _DENSIFY_POINTS = 21
+
+
+@dataclass(frozen=True)
+class InputGranule:
+    """One HLS granule a composite was built from.
+
+    Parameters
+    ----------
+    granule_id : str
+        The granule ID, which is also its STAC item ID.
+    stac_href : str
+        URL of that item in the CMR-STAC catalog.
+    """
+
+    granule_id: str
+    stac_href: str
+
+
+def mgrs_fields(tile_id: str) -> tuple[int, str, str]:
+    """Split an MGRS tile ID into its UTM zone, latitude band, and grid square.
+
+    Parameters
+    ----------
+    tile_id : str
+        Tile ID without the leading "T", e.g. ``14TPN``.
+
+    Returns
+    -------
+    tuple
+        ``(utm_zone, latitude_band, grid_square)``, e.g. ``(14, "T", "PN")``.
+
+    Raises
+    ------
+    ValueError
+        If `tile_id` is not a well-formed MGRS tile.
+    """
+    match = _MGRS_TILE.match(tile_id)
+    if match is None:
+        raise ValueError(f"not an MGRS tile: {tile_id!r}")
+    zone, band, square = match.groups()
+    return int(zone), band, square
+
+
+def _provenance(granules: list[Granule]) -> list[InputGranule]:
+    """Where each input granule's STAC item lives."""
+    inputs = []
+    for granule in granules:
+        granule_id = granule.path.rsplit("/", 1)[-1]
+        collection = CMR_STAC_COLLECTIONS[granule.satellite]
+        inputs.append(
+            InputGranule(
+                granule_id=granule_id,
+                stac_href=f"{CMR_STAC_BASE}/{collection}/items/{granule_id}",
+            )
+        )
+    return inputs
 
 
 @dataclass(frozen=True)
@@ -104,6 +170,8 @@ class GranuleMetadata:
         The written GeoTIFFs, sorted by name.
     size_bytes : int
         Total size of those files.
+    inputs : list of InputGranule
+        The granules composited, in discovery order. Empty when unknown.
     """
 
     granule_id: str
@@ -125,6 +193,7 @@ class GranuleMetadata:
     qa_fill_value: int
     assets: list[Path]
     size_bytes: int
+    inputs: list[InputGranule] = field(default_factory=list)
 
 
 def _crs_name(crs: rasterio.crs.CRS) -> str:
@@ -148,6 +217,7 @@ def granule_metadata(
     tile_id: str,
     date_range: DateRange,
     granule_dir: Path,
+    inputs: list[Granule] | None = None,
     produced_at: dt.datetime | None = None,
 ) -> GranuleMetadata:
     """Describe a written composite directory.
@@ -160,6 +230,9 @@ def granule_metadata(
         Period composited over.
     granule_dir : pathlib.Path
         Directory holding the written GeoTIFFs.
+    inputs : list of Granule, optional
+        The granules composited. Recorded as provenance; omitted from both
+        documents when not given.
     produced_at : datetime.datetime, optional
         Production time, by default the current UTC time.
 
@@ -210,4 +283,5 @@ def granule_metadata(
         qa_fill_value=VALID_COUNT_FILL,
         assets=assets,
         size_bytes=sum(path.stat().st_size for path in assets),
+        inputs=_provenance(inputs or []),
     )
