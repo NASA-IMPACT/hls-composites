@@ -39,6 +39,9 @@ def stages(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline, "scan_bucket_for_granules", fake_scan)
     monkeypatch.setattr(pipeline, "build_composite", fake_build)
     monkeypatch.setattr(pipeline, "write_composite", fake_write)
+    # Metadata reads the written rasters, which these stubs do not produce.
+    # Tests that care about it override this.
+    monkeypatch.setattr(pipeline, "write_metadata", lambda *a, **k: [])
     monkeypatch.setattr(pipeline.boto3, "client", lambda *a, **k: object())
     return captured
 
@@ -170,3 +173,64 @@ class TestReaderRole:
     def test_progress_is_optional(self, stages, tmp_path):
         """The default callback discards messages, so no caller is required."""
         run(LocalDestination(tmp_path))
+
+
+class TestMetadata:
+    def test_metadata_is_written_for_the_granule_directory(
+        self, stages, monkeypatch, tmp_path
+    ):
+        written: dict = {}
+
+        def fake_write_metadata(tile_id, date_range, granule_dir):
+            written.update(tile_id=tile_id, granule_dir=Path(granule_dir))
+            return []
+
+        monkeypatch.setattr(pipeline, "write_metadata", fake_write_metadata)
+
+        run(LocalDestination(tmp_path))
+
+        assert written["tile_id"] == "14TPN"
+        assert written["granule_dir"] == stages["write"]["dest"]
+
+    def test_no_metadata_when_no_granules_were_found(
+        self, stages, monkeypatch, tmp_path
+    ):
+        """There is no product to describe."""
+        stages["granules"] = []
+
+        def fail(*args, **kwargs):
+            raise AssertionError("must not write metadata without a composite")
+
+        monkeypatch.setattr(pipeline, "write_metadata", fail)
+
+        run(LocalDestination(tmp_path))
+
+    def test_a_metadata_failure_fails_the_run(self, stages, monkeypatch, tmp_path):
+        """Better a retryable failure than a granule the DAAC cannot ingest."""
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("no CRS")
+
+        monkeypatch.setattr(pipeline, "write_metadata", boom)
+
+        with pytest.raises(RuntimeError, match="no CRS"):
+            run(LocalDestination(tmp_path))
+
+    def test_metadata_is_written_before_upload(self, stages, monkeypatch, tmp_path):
+        """Order matters: the documents must be in the directory to be uploaded."""
+        order: list[str] = []
+
+        monkeypatch.setattr(
+            pipeline,
+            "write_metadata",
+            lambda *a, **k: order.append("metadata") or [],
+        )
+        monkeypatch.setattr(
+            pipeline,
+            "upload_directory",
+            lambda *a, **k: order.append("upload") or [],
+        )
+
+        run(S3Destination("out-bucket"))
+
+        assert order == ["metadata", "upload"]
