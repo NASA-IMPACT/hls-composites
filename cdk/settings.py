@@ -57,7 +57,7 @@ class StackSettings(BaseSettings):
     PROCESSING_JOB_VCPU: int = 2
     PROCESSING_JOB_MEMORY_MB: int = 8_000
     PROCESSING_JOB_RETRY_ATTEMPTS: int = 3
-    PROCESSING_JOB_TIMEOUT_HOURS: int = 1
+    PROCESSING_JOB_TIMEOUT_MINUTES: int = 30
     # Custom log group (otherwise logs land in the catch-all AWS Batch log group)
     PROCESSING_LOG_GROUP_NAME: str
     PROCESSING_LOG_RETENTION: logs.RetentionDays = logs.RetentionDays.ONE_MONTH
