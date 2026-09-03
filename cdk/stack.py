@@ -69,6 +69,8 @@ class HlsCompositesStack(Stack):
             "HLS_BUCKET": settings.INPUT_BUCKET_NAME,
             "OUTPUT_BUCKET": settings.OUTPUT_BUCKET_NAME,
         }
+        if settings.OUTPUT_PREFIX:
+            environment["OUTPUT_PREFIX"] = settings.OUTPUT_PREFIX
         if settings.LPDAAC_READER_ROLE_ARN:
             environment["LPDAAC_READER_ROLE_ARN"] = settings.LPDAAC_READER_ROLE_ARN
 

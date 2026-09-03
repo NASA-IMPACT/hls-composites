@@ -171,3 +171,197 @@ def test_cli_rejects_bands_and_indexes_together(monkeypatch, tmp_path):
     assert result.exit_code != 0
     assert "mutually exclusive" in result.output
     assert "build" not in captured
+
+
+class TestOutputTarget:
+    """--output-dir and --output-bucket are mutually exclusive, one required."""
+
+    def _args(self, *extra):
+        return [
+            "--tile-id",
+            "14TPN",
+            "--year-month",
+            "2015-07",
+            "--bucket",
+            "in-bucket",
+            *extra,
+        ]
+
+    def test_both_targets_is_an_error(self, monkeypatch, tmp_path):
+        _patch_pipeline(
+            monkeypatch, {}, [Granule("s3://b/g", "L30", date(2015, 7, 10))]
+        )
+
+        result = CliRunner().invoke(
+            cli.main,
+            self._args("--output-dir", str(tmp_path), "--output-bucket", "out"),
+        )
+
+        assert result.exit_code != 0
+        assert "exactly one of" in result.output
+
+    def test_neither_target_is_an_error(self, monkeypatch):
+        _patch_pipeline(
+            monkeypatch, {}, [Granule("s3://b/g", "L30", date(2015, 7, 10))]
+        )
+
+        result = CliRunner().invoke(cli.main, self._args(), env={"OUTPUT_BUCKET": ""})
+
+        assert result.exit_code != 0
+        assert "exactly one of" in result.output
+
+    def test_bucket_target_uploads_under_the_granule_id(self, monkeypatch, tmp_path):
+        captured: dict = {}
+        _patch_pipeline(
+            monkeypatch, captured, [Granule("s3://b/g", "L30", date(2015, 7, 10))]
+        )
+        dest = tmp_path / "HLS.M30.T14TPN.2015182.2015212.v2.0"
+        dest.mkdir()
+        monkeypatch.setattr(cli, "write_composite", lambda *a, **k: dest)
+
+        def fake_upload(client, local_dir, bucket, prefix):
+            captured["upload"] = {"dir": local_dir, "bucket": bucket, "prefix": prefix}
+            return ["key-a", "key-b"]
+
+        monkeypatch.setattr(cli, "upload_directory", fake_upload)
+
+        result = CliRunner().invoke(
+            cli.main, self._args("--output-bucket", "out-bucket")
+        )
+
+        assert result.exit_code == 0, result.output
+        assert captured["upload"]["bucket"] == "out-bucket"
+        # The prefix is the granule id, so keys mirror the local layout.
+        assert captured["upload"]["prefix"] == dest.name
+        assert "Uploaded 2 files" in result.output
+
+    def test_output_prefix_is_prepended_to_the_granule_id(self, monkeypatch, tmp_path):
+        captured: dict = {}
+        _patch_pipeline(
+            monkeypatch, captured, [Granule("s3://b/g", "L30", date(2015, 7, 10))]
+        )
+        dest = tmp_path / "HLS.M30.T14TPN.2015182.2015212.v2.0"
+        dest.mkdir()
+        monkeypatch.setattr(cli, "write_composite", lambda *a, **k: dest)
+        monkeypatch.setattr(
+            cli,
+            "upload_directory",
+            lambda client, d, bucket, prefix: (
+                captured.setdefault("prefix", prefix) or []
+            ),
+        )
+
+        result = CliRunner().invoke(
+            cli.main,
+            self._args(
+                "--output-bucket", "out-bucket", "--output-prefix", "HLS_M30/data"
+            ),
+        )
+
+        assert result.exit_code == 0, result.output
+        assert captured["prefix"] == f"HLS_M30/data/{dest.name}"
+
+    def test_empty_output_prefix_writes_at_the_root(self, monkeypatch, tmp_path):
+        captured: dict = {}
+        _patch_pipeline(
+            monkeypatch, captured, [Granule("s3://b/g", "L30", date(2015, 7, 10))]
+        )
+        dest = tmp_path / "HLS.M30.T14TPN.2015182.2015212.v2.0"
+        dest.mkdir()
+        monkeypatch.setattr(cli, "write_composite", lambda *a, **k: dest)
+        monkeypatch.setattr(
+            cli,
+            "upload_directory",
+            lambda client, d, bucket, prefix: (
+                captured.setdefault("prefix", prefix) or []
+            ),
+        )
+
+        result = CliRunner().invoke(
+            cli.main,
+            self._args("--output-bucket", "out-bucket"),
+            env={"OUTPUT_PREFIX": ""},
+        )
+
+        assert result.exit_code == 0, result.output
+        assert captured["prefix"] == dest.name
+
+    def test_dir_target_does_not_upload(self, monkeypatch, tmp_path):
+        _patch_pipeline(
+            monkeypatch, {}, [Granule("s3://b/g", "L30", date(2015, 7, 10))]
+        )
+
+        def fail_upload(*a, **k):
+            raise AssertionError("should not upload when writing locally")
+
+        monkeypatch.setattr(cli, "upload_directory", fail_upload)
+
+        result = CliRunner().invoke(
+            cli.main,
+            self._args("--output-dir", str(tmp_path)),
+            env={"OUTPUT_BUCKET": ""},
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Wrote composite to" in result.output
+
+
+class TestReaderRole:
+    def test_role_arn_is_passed_through_and_reported(self, monkeypatch, tmp_path):
+        captured: dict = {}
+        _patch_pipeline(
+            monkeypatch, captured, [Granule("s3://b/g", "L30", date(2015, 7, 10))]
+        )
+
+        from contextlib import contextmanager
+
+        @contextmanager
+        def fake_env(role_arn, **kwargs):
+            captured["role_arn"] = role_arn
+            yield role_arn
+
+        monkeypatch.setattr(cli, "assumed_role_env", fake_env)
+
+        result = CliRunner().invoke(
+            cli.main,
+            [
+                "--tile-id",
+                "14TPN",
+                "--year-month",
+                "2015-07",
+                "--bucket",
+                "in-bucket",
+                "--output-dir",
+                str(tmp_path),
+                "--role-arn",
+                "arn:aws:iam::123456789012:role/reader",
+            ],
+            env={"OUTPUT_BUCKET": ""},
+        )
+
+        assert result.exit_code == 0, result.output
+        assert captured["role_arn"] == "arn:aws:iam::123456789012:role/reader"
+        assert "Reading via assumed role" in result.output
+
+    def test_without_a_role_it_reports_ambient_credentials(self, monkeypatch, tmp_path):
+        _patch_pipeline(
+            monkeypatch, {}, [Granule("s3://b/g", "L30", date(2015, 7, 10))]
+        )
+
+        result = CliRunner().invoke(
+            cli.main,
+            [
+                "--tile-id",
+                "14TPN",
+                "--year-month",
+                "2015-07",
+                "--bucket",
+                "in-bucket",
+                "--output-dir",
+                str(tmp_path),
+            ],
+            env={"OUTPUT_BUCKET": "", "LPDAAC_READER_ROLE_ARN": ""},
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Reading with ambient credentials" in result.output
