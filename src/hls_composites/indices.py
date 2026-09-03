@@ -98,10 +98,10 @@ ALL_INDICES: list[Index] = [
     NBR(),
     NDVI(),
 ]
-"""Every index defined here, whether or not the pipeline composites it."""
+"""Every index defined here, whether or not the composite algorithm emits it."""
 
 SELECTION_INDEX: Index = EVI2()
 """The index whose per-pixel median drives observation selection."""
 
 DEFAULT_INDICES: list[Index] = [EVI(), NBR(), NDVI()]
-"""The indices the composite pipeline emits unless told otherwise."""
+"""The indices the composite algorithm emits unless told otherwise."""

@@ -11,8 +11,6 @@ fields, so submissions have to go through `JobGroup` rather than a bare
 """
 
 import argparse
-import calendar
-from datetime import datetime
 
 import boto3
 from batch_event_job_monitor import JobGroup, submit_job
@@ -21,13 +19,6 @@ from hls_composites.io import composite_id
 from hls_composites.models import DateRange
 
 JOB_TYPE = "monthly-composite"
-
-
-def month_range(year_month: str) -> DateRange:
-    """Parse `YYYY-MM` into that calendar month's `DateRange`."""
-    first = datetime.strptime(year_month, "%Y-%m").date()
-    last_day = calendar.monthrange(first.year, first.month)[1]
-    return DateRange(first, first.replace(day=last_day))
 
 
 def parse_args() -> argparse.Namespace:
@@ -47,7 +38,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    date_range = month_range(args.year_month)
+    date_range = DateRange.for_month(args.year_month)
 
     # Order must match partition_keys() in cdk/hls_constructs/job_monitoring.py:
     # these become the key path the Athena tables project over. The tile is not

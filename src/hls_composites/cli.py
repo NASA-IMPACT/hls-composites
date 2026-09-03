@@ -1,31 +1,17 @@
-"""Command-line entrypoint: discover -> composite -> write for one tile-month."""
+"""Command-line entrypoint: argument handling around `pipeline.create_composite`."""
 
-import calendar
-import tempfile
-from contextlib import ExitStack
-from datetime import datetime
 from pathlib import Path
 
-import boto3
 import click
 
-from hls_composites.aws import assumed_role_env, upload_directory
-from hls_composites.composite import CompositeOutput, build_composite
-from hls_composites.discovery import scan_bucket_for_granules
-from hls_composites.io import composite_id, write_composite
+from hls_composites.composite import CompositeOutput
 from hls_composites.models import DateRange
-
-
-def _month_range(year_month: str) -> DateRange:
-    """Parse a ``YYYY-MM`` string into that calendar month's `DateRange`."""
-    try:
-        first = datetime.strptime(year_month, "%Y-%m").date()
-    except ValueError as error:
-        raise click.BadParameter(
-            f"expected YYYY-MM, got {year_month!r}", param_hint="--year-month"
-        ) from error
-    last_day = calendar.monthrange(first.year, first.month)[1]
-    return DateRange(first, first.replace(day=last_day))
+from hls_composites.pipeline import (
+    Destination,
+    LocalDestination,
+    S3Destination,
+    create_composite,
+)
 
 
 @click.command()
@@ -103,51 +89,25 @@ def main(
         raise click.UsageError(
             "exactly one of --output-dir or --output-bucket is required"
         )
+
+    try:
+        date_range = DateRange.for_month(year_month)
+    except ValueError as error:
+        raise click.BadParameter(str(error), param_hint="--year-month") from error
+
+    destination: Destination = (
+        S3Destination(output_bucket, output_prefix)
+        if output_bucket
+        else LocalDestination(output_dir)  # type: ignore[arg-type]
+    )
     output: CompositeOutput = "bands" if bands else "indexes"
 
-    date_range = _month_range(year_month)
-
-    with ExitStack() as stack:
-        if output_bucket:
-            work_dir = Path(stack.enter_context(tempfile.TemporaryDirectory()))
-        else:
-            assert output_dir is not None
-            work_dir = output_dir
-
-        # Only the reads run as the assumed role; the upload below uses this
-        # task's own credentials.
-        with assumed_role_env(role_arn) as assumed:
-            click.echo(
-                f"Reading via assumed role {assumed}"
-                if assumed
-                else "Reading with ambient credentials"
-            )
-            s3_client = boto3.client("s3")
-            granules = scan_bucket_for_granules(s3_client, bucket, tile_id, date_range)
-
-            # FIXME: exit with some specific exit code we can parse in job monitor
-            #        (could be useful for leading edge)
-            if not granules:
-                dest = work_dir / composite_id(tile_id, date_range)
-                dest.mkdir(parents=True, exist_ok=True)
-                (dest / "No granules found").touch()
-                click.echo(f"No granules found for {tile_id} {year_month}")
-            else:
-                click.echo(
-                    f"Compositing {output} from {len(granules)} granules "
-                    f"for {tile_id} {year_month}"
-                )
-                composite = build_composite(granules, output=output)
-                dest = Path(write_composite(composite, work_dir, tile_id, date_range))
-
-        # FIXME: metadata
-        # FIXME: UMM-G
-
-        if output_bucket:
-            prefix = "/".join(
-                part for part in (output_prefix.strip("/"), dest.name) if part
-            )
-            keys = upload_directory(boto3.client("s3"), dest, output_bucket, prefix)
-            click.echo(f"Uploaded {len(keys)} files to s3://{output_bucket}/{prefix}/")
-        else:
-            click.echo(f"Wrote composite to {dest}")
+    create_composite(
+        tile_id=tile_id,
+        date_range=date_range,
+        input_bucket=bucket,
+        destination=destination,
+        output=output,
+        role_arn=role_arn,
+        on_progress=click.echo,
+    )

@@ -408,7 +408,7 @@ def _composite_block(
     indices: list[Index] = DEFAULT_INDICES,
     output: CompositeOutput = "indexes",
 ) -> dict[str, np.ndarray]:
-    """Composite one spatial block: the whole per-pixel pipeline, fused.
+    """Composite one spatial block: the whole per-pixel algorithm, fused.
 
     Runs entirely on in-memory numpy for a single spatial block holding the
     full temporal stack: masks bad observations, selects the median-EVI2
@@ -567,7 +567,7 @@ def _map_block_kernel(
     """Run `_composite_block` on one spatial block, wrapped for `xr.map_blocks`.
 
     Receives an in-memory `Dataset` block (one spatial chunk, full time axis),
-    delegates the numpy pipeline to `_composite_block`, and re-wraps the
+    delegates the numpy work to `_composite_block`, and re-wraps the
     outputs into a `Dataset` that reuses the block's `(y, x)` coords (and thus
     its CRS/transform).
     """
@@ -598,7 +598,7 @@ def build_composite(
 
     Reads each band across all granules lazily (dask-chunked at the HLS native
     block size), then applies the entire masking / median-EVI2 selection /
-    aggregation pipeline as a single fused `xr.map_blocks` kernel per spatial
+    aggregation steps as a single fused `xr.map_blocks` kernel per spatial
     block (see `_composite_block`). The returned Dataset is lazy; computation
     streams block-by-block when it is written or `.compute()`-ed, keeping
     memory bounded to roughly one block's temporal stack.
