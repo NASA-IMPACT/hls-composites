@@ -11,48 +11,6 @@ from aws_cdk import (
 )
 from constructs import Construct
 
-RETENTION_BY_DAYS = {
-    1: logs.RetentionDays.ONE_DAY,
-    3: logs.RetentionDays.THREE_DAYS,
-    5: logs.RetentionDays.FIVE_DAYS,
-    7: logs.RetentionDays.ONE_WEEK,
-    14: logs.RetentionDays.TWO_WEEKS,
-    30: logs.RetentionDays.ONE_MONTH,
-    60: logs.RetentionDays.TWO_MONTHS,
-    90: logs.RetentionDays.THREE_MONTHS,
-    120: logs.RetentionDays.FOUR_MONTHS,
-    150: logs.RetentionDays.FIVE_MONTHS,
-    180: logs.RetentionDays.SIX_MONTHS,
-    365: logs.RetentionDays.ONE_YEAR,
-    400: logs.RetentionDays.THIRTEEN_MONTHS,
-    545: logs.RetentionDays.EIGHTEEN_MONTHS,
-    731: logs.RetentionDays.TWO_YEARS,
-    1096: logs.RetentionDays.THREE_YEARS,
-    1827: logs.RetentionDays.FIVE_YEARS,
-    2192: logs.RetentionDays.SIX_YEARS,
-    2557: logs.RetentionDays.SEVEN_YEARS,
-    2922: logs.RetentionDays.EIGHT_YEARS,
-    3288: logs.RetentionDays.NINE_YEARS,
-    3653: logs.RetentionDays.TEN_YEARS,
-    0: logs.RetentionDays.INFINITE,
-}
-"""CloudWatch log retention periods, keyed by day count (0 meaning "forever")."""
-
-
-def log_retention(days: int) -> logs.RetentionDays:
-    """Look up the `RetentionDays` for a day count.
-
-    CloudWatch Logs only accepts a fixed set of retention periods, so an
-    unsupported day count is an error rather than something to round.
-    """
-    try:
-        return RETENTION_BY_DAYS[days]
-    except KeyError:
-        supported = ", ".join(str(day) for day in sorted(RETENTION_BY_DAYS))
-        raise ValueError(
-            f"unsupported log retention of {days} days; expected one of {supported}"
-        ) from None
-
 
 def ecr_uri_to_repo_arn(uri: str) -> str | None:
     """Convert an ECR container URI into the ARN of its repository.
@@ -90,8 +48,9 @@ class BatchJob(Construct):
         retry_attempts: int,
         timeout_hours: int,
         log_group_name: str,
-        log_retention_days: int,
+        log_retention: logs.RetentionDays,
         job_role_name: str,
+        job_definition_name: str,
         environment: dict[str, str] | None = None,
         secrets: dict[str, batch.Secret] | None = None,
         **kwargs: Any,
@@ -112,9 +71,8 @@ class BatchJob(Construct):
             Wall-clock limit after which AWS Batch terminates an attempt.
         log_group_name:
             Name of the log group job logs are written to.
-        log_retention_days:
-            How long to keep job logs, in days. Must be one of the periods
-            CloudWatch Logs supports (see `RETENTION_BY_DAYS`); 0 means forever.
+        log_retention:
+            How long to keep job logs.
         job_role_name:
             Name of the IAM role the container itself runs as. Named explicitly so
             other accounts' trust policies can refer to it.
@@ -122,6 +80,10 @@ class BatchJob(Construct):
             Environment variables set on the container.
         secrets:
             Secrets exposed to the container as environment variables.
+        job_definition_name:
+            Name of the job definition family. Named explicitly so submitters
+            can refer to it without looking up an ARN, and so each deploy
+            registers a new revision of one family rather than a new family.
         """
         super().__init__(scope, construct_id, **kwargs)
 
@@ -129,7 +91,7 @@ class BatchJob(Construct):
             self,
             "JobLogGroup",
             log_group_name=log_group_name,
-            retention=log_retention(log_retention_days),
+            retention=log_retention,
         )
 
         # The execution role is used by the ECS agent, not by our code: it pulls the
@@ -179,6 +141,7 @@ class BatchJob(Construct):
         self.job_def = batch.EcsJobDefinition(
             self,
             "JobDef",
+            job_definition_name=job_definition_name,
             container=batch.EcsEc2ContainerDefinition(
                 self,
                 "BatchContainerDef",

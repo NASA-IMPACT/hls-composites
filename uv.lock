@@ -258,6 +258,21 @@ wheels = [
 ]
 
 [[package]]
+name = "aws-cdk-aws-lambda-python-alpha"
+version = "2.266.0a0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aws-cdk-lib" },
+    { name = "constructs" },
+    { name = "jsii" },
+    { name = "publication" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d8/df/ea8b5a6bb9bed7a5f7f21c6791a268353f79f79aa4701a5d4e7170e2621f/aws_cdk_aws_lambda_python_alpha-2.266.0a0.tar.gz", hash = "sha256:eb7bb2890c722dc7d49851c61f8df8f7dd339a9135216e8f007c5c5be1b05cdb", size = 100550, upload-time = "2026-08-19T18:52:01.616Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/54/d9/c0cb351399eac37a93df377b70b18e164afeba999cd15dcfb40cacfe61bd/aws_cdk_aws_lambda_python_alpha-2.266.0a0-py3-none-any.whl", hash = "sha256:be7c34c7296d9e6c478df9065510b2013a52d27629be6d90b4c9221043e71077", size = 99742, upload-time = "2026-08-19T18:51:06.764Z" },
+]
+
+[[package]]
 name = "aws-cdk-cloud-assembly-schema"
 version = "54.20.0"
 source = { registry = "https://pypi.org/simple" }
@@ -285,6 +300,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/6e/7a/9bbb0b60d8b10fbebe0867f2dc3e84e3384daa957354ae1744b8ef3f0412/aws_cdk_lib-2.266.0.tar.gz", hash = "sha256:6bf1b45ac545c4306678e120665e7e09d04817b5727afd4eb49fbbb7c55e85d2", size = 55912884, upload-time = "2026-08-19T18:52:21.009Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ac/6e/3572f81d5fb966a481acd727dc66fe0f40cbaabcabe63f935f226a371162/aws_cdk_lib-2.266.0-py3-none-any.whl", hash = "sha256:96e3eaa9b9e2d1ac4508603be4bab0f861d7796c197ab6851efe413acf33f62a", size = 56616280, upload-time = "2026-08-19T18:51:37.385Z" },
+]
+
+[[package]]
+name = "batch-event-job-monitor"
+version = "0.1.dev44+gab6cfbd69"
+source = { git = "https://github.com/NASA-IMPACT/batch-event-job-monitor.git?branch=feat%2Finit#ab6cfbd6940bb146cbc5429fcec78b6d80a6ae52" }
+dependencies = [
+    { name = "boto3" },
+]
+
+[package.optional-dependencies]
+cdk = [
+    { name = "aws-cdk-aws-lambda-python-alpha" },
+    { name = "aws-cdk-lib" },
+    { name = "constructs" },
 ]
 
 [[package]]
@@ -785,6 +815,7 @@ dependencies = [
 [package.dev-dependencies]
 deploy = [
     { name = "aws-cdk-lib" },
+    { name = "batch-event-job-monitor", extra = ["cdk"] },
     { name = "constructs" },
     { name = "pydantic-settings" },
 ]
@@ -813,6 +844,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 deploy = [
     { name = "aws-cdk-lib", specifier = ">=2.180.0" },
+    { name = "batch-event-job-monitor", extras = ["cdk"], git = "https://github.com/NASA-IMPACT/batch-event-job-monitor.git?branch=feat%2Finit" },
     { name = "constructs", specifier = ">=10.4.2" },
     { name = "pydantic-settings", specifier = ">=2.8.0" },
 ]

@@ -17,7 +17,7 @@ The AWS Batch infrastructure that runs the `hls-composites` container lives in `
 | Batch service role  | `AWSBatchServiceRole` + `AmazonSSMReadOnlyAccess`                           |
 | Execution role      | Pulls the image from ECR and ships logs                                     |
 | Job role            | `hls-composites-processing-role-{stage}` -- the container's own credentials |
-| Log group           | `PROCESSING_LOG_GROUP_NAME`, `PROCESSING_LOG_RETENTION_DAYS` retention      |
+| Log group           | `PROCESSING_LOG_GROUP_NAME`, `PROCESSING_LOG_RETENTION` retention      |
 
 You can submit jobs manually using AWS CLI for backfills or testing:
 
@@ -41,7 +41,8 @@ Set these as **variables** on the GitHub environments `dev` and `prod`:
 - `AWS_ROLE_TO_ASSUME_ARN` -- the deploy role assumed via OIDC
 - `STACK_NAME`, `STAGE`
 - `MCP_ACCOUNT_ID`, `MCP_ACCOUNT_REGION`, `MCP_IAM_PERMISSION_BOUNDARY_ARN`, `VPC_ID`
-- `INPUT_BUCKET_NAME`, `OUTPUT_BUCKET_NAME`
+- `INPUT_BUCKET_NAME`, `OUTPUT_BUCKET_NAME`, `PROCESSING_BUCKET_NAME`
+- `ATHENA_DATABASE_NAME`, `ATHENA_INVENTORY_START_DATETIME`
 - `PROCESSING_CONTAINER_ECR_URI`, `PROCESSING_LOG_GROUP_NAME`
 - optionally `LPDAAC_READER_ROLE_ARN` and any of the tuning settings
 

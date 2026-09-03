@@ -1,0 +1,85 @@
+#!/usr/bin/env -S uv run --group deploy --script
+"""Submit one tile-month composite job, tagged for the job monitor.
+
+The monitor only tracks jobs whose Batch parameters carry the `bejm_*` identity
+fields, so submissions have to go through `JobGroup` rather than a bare
+`aws batch submit-job`.
+
+    scripts/submit-job --tile-id 14TPN --year-month 2020-07 \
+        --job-queue hls-composites-dev-job-queue \
+        --job-definition hls-composites-dev-processing
+"""
+
+import argparse
+import calendar
+from datetime import datetime
+
+import boto3
+from batch_event_job_monitor import JobGroup, submit_job
+
+from hls_composites.io import composite_id
+from hls_composites.models import DateRange
+
+JOB_TYPE = "monthly-composite"
+
+
+def month_range(year_month: str) -> DateRange:
+    """Parse `YYYY-MM` into that calendar month's `DateRange`."""
+    first = datetime.strptime(year_month, "%Y-%m").date()
+    last_day = calendar.monthrange(first.year, first.month)[1]
+    return DateRange(first, first.replace(day=last_day))
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--tile-id", required=True, help="MGRS tile ID, e.g. 14TPN")
+    parser.add_argument("--year-month", required=True, help="Composite month, YYYY-MM")
+    parser.add_argument("--job-queue", required=True)
+    parser.add_argument("--job-definition", required=True)
+    parser.add_argument(
+        "--output-dir",
+        default="/tmp/composites",
+        help="Container-local output directory",
+    )
+    parser.add_argument("--region", default="us-west-2")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    date_range = month_range(args.year_month)
+
+    # Order must match partition_keys() in cdk/hls_constructs/job_monitoring.py:
+    # these become the key path the Athena tables project over. The tile is not
+    # a partition key, so it only appears in the entity IDs.
+    job_group = JobGroup.new(
+        job_type=JOB_TYPE,
+        partition_fields={"year_month": args.year_month},
+        input_entity_ids=[f"{args.tile_id}_{args.year_month}"],
+        output_entity_id=composite_id(args.tile_id, date_range),
+    )
+
+    job_id = submit_job(
+        batch_client=boto3.client("batch", region_name=args.region),
+        build_submit_job_params=lambda group: {
+            "jobName": group.batch_job_name(),
+            "jobQueue": args.job_queue,
+            "jobDefinition": args.job_definition,
+            "containerOverrides": {
+                "command": [
+                    "--tile-id",
+                    args.tile_id,
+                    "--year-month",
+                    args.year_month,
+                    "--output-dir",
+                    args.output_dir,
+                ],
+            },
+        },
+        job_group=job_group,
+    )
+    print(f"Submitted {job_id} for {args.tile_id} {args.year_month}")
+
+
+if __name__ == "__main__":
+    main()

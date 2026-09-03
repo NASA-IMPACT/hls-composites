@@ -28,6 +28,9 @@ def build_settings(**overrides) -> StackSettings:
         "LPDAAC_READER_ROLE_ARN": LPDAAC_ROLE_ARN,
         "PROCESSING_CONTAINER_ECR_URI": ECR_URI,
         "PROCESSING_LOG_GROUP_NAME": "hls-composites-processing-dev",
+        "PROCESSING_BUCKET_NAME": "hls-composites-dev",
+        "ATHENA_DATABASE_NAME": "hls_composites_dev",
+        "ATHENA_INVENTORY_START_DATETIME": "2026-09-01T01:00:00",
         "BATCH_MAX_VCPU": 32,
         "PROCESSING_JOB_VCPU": 4,
         "PROCESSING_JOB_MEMORY_MB": 16_000,
@@ -57,12 +60,13 @@ def policy_statements(template: assertions.Template) -> list[dict]:
     ]
 
 
-def resolve(value) -> str:
+def resolve(template: assertions.Template, value) -> str:
     """Render a CloudFormation value as the literal text it stands for.
 
-    Grants against imported buckets render as an `Fn::Join` over a partition
-    `Ref` rather than a plain string, so they are resolved back into readable
-    ARNs for assertions.
+    Grants render as intrinsics rather than strings: imported buckets as an
+    `Fn::Join` over a partition `Ref`, and buckets this stack owns as an
+    `Fn::GetAtt` on the bucket's ARN. Both resolve back to plain ARNs so tests
+    can assert on something readable.
     """
     if isinstance(value, str):
         return value
@@ -70,16 +74,21 @@ def resolve(value) -> str:
         return "aws" if value["Ref"] == "AWS::Partition" else value["Ref"]
     if "Fn::Join" in value:
         separator, parts = value["Fn::Join"]
-        return separator.join(resolve(part) for part in parts)
+        return separator.join(resolve(template, part) for part in parts)
+    if "Fn::GetAtt" in value:
+        logical_id, attribute = value["Fn::GetAtt"]
+        resource = template.to_json()["Resources"][logical_id]
+        if resource["Type"] == "AWS::S3::Bucket" and attribute == "Arn":
+            return f"arn:aws:s3:::{resource['Properties']['BucketName']}"
     raise AssertionError(f"cannot resolve {value!r}")
 
 
-def resource_arns(statement: dict) -> list[str]:
+def resource_arns(template: assertions.Template, statement: dict) -> list[str]:
     """The literal ARNs a statement applies to."""
     resources = statement["Resource"]
     if not isinstance(resources, list):
         resources = [resources]
-    return [resolve(resource) for resource in resources]
+    return [resolve(template, resource) for resource in resources]
 
 
 @pytest.fixture(scope="module")
@@ -156,6 +165,7 @@ def test_log_group_is_explicit(template):
 
 
 def test_job_role_has_a_stable_name(template):
+    """Pinned: other accounts name this role in their trust policies."""
     template.has_resource_properties(
         "AWS::IAM::Role",
         assertions.Match.object_like(
@@ -172,7 +182,7 @@ def test_execution_role_pull_is_scoped_to_the_repository(template):
         if "ecr:BatchGetImage" in statement["Action"]
     ]
 
-    assert [resource_arns(statement) for statement in pulls] == [[repo_arn]]
+    assert [resource_arns(template, statement) for statement in pulls] == [[repo_arn]]
 
 
 def test_job_role_may_assume_the_lpdaac_reader_role(template):
@@ -182,7 +192,9 @@ def test_job_role_may_assume_the_lpdaac_reader_role(template):
         if statement["Action"] == "sts:AssumeRole"
     ]
 
-    assert [resource_arns(statement) for statement in assumes] == [[LPDAAC_ROLE_ARN]]
+    assert [resource_arns(template, statement) for statement in assumes] == [
+        [LPDAAC_ROLE_ARN]
+    ]
 
 
 def test_job_role_can_write_the_output_bucket(template):
@@ -190,10 +202,12 @@ def test_job_role_can_write_the_output_bucket(template):
         statement
         for statement in policy_statements(template)
         if "s3:PutObject" in statement["Action"]
-        and any("hls-output-bucket" in arn for arn in resource_arns(statement))
+        and any(
+            "hls-output-bucket" in arn for arn in resource_arns(template, statement)
+        )
     ]
 
-    assert [resource_arns(statement) for statement in writes] == [
+    assert [resource_arns(template, statement) for statement in writes] == [
         ["arn:aws:s3:::hls-output-bucket", "arn:aws:s3:::hls-output-bucket/*"]
     ]
 
@@ -205,7 +219,7 @@ def test_job_role_can_only_read_the_input_bucket(template):
         if statement["Action"] == ["s3:GetObject*", "s3:GetBucket*", "s3:List*"]
     ]
 
-    assert [resource_arns(statement) for statement in reads] == [
+    assert [resource_arns(template, statement) for statement in reads] == [
         ["arn:aws:s3:::hls-input-bucket", "arn:aws:s3:::hls-input-bucket/*"]
     ]
 

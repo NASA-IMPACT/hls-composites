@@ -9,7 +9,7 @@ from aws_cdk import (
 )
 from constructs import Construct
 
-from hls_constructs import BatchInfra, BatchJob
+from hls_constructs import BatchInfra, BatchJob, JobMonitoring
 from settings import StackSettings
 
 
@@ -52,11 +52,12 @@ class HlsCompositesStack(Stack):
         # ----------------------------------------------------------------------
         self.batch_infra = BatchInfra(
             self,
-            "Infra",
+            "HLSCompositeCompute",
             vpc=self.vpc,
             instance_classes=settings.BATCH_INSTANCE_CLASSES,
             max_vcpu=settings.BATCH_MAX_VCPU,
             ami_id=settings.MCP_AMI_ID,
+            stage=settings.STAGE,
             job_queue_name=f"hls-composites-{settings.STAGE}-job-queue",
         )
 
@@ -73,15 +74,16 @@ class HlsCompositesStack(Stack):
 
         self.processing_job = BatchJob(
             self,
-            "Processing",
+            "HLSCompositeProcessing",
             container_ecr_uri=settings.PROCESSING_CONTAINER_ECR_URI,
             vcpu=settings.PROCESSING_JOB_VCPU,
             memory_mb=settings.PROCESSING_JOB_MEMORY_MB,
             retry_attempts=settings.PROCESSING_JOB_RETRY_ATTEMPTS,
             timeout_hours=settings.PROCESSING_JOB_TIMEOUT_HOURS,
             log_group_name=settings.PROCESSING_LOG_GROUP_NAME,
-            log_retention_days=settings.PROCESSING_LOG_RETENTION_DAYS,
+            log_retention=settings.PROCESSING_LOG_RETENTION,
             job_role_name=f"hls-composites-processing-role-{settings.STAGE}",
+            job_definition_name=f"hls-composites-{settings.STAGE}-job-definition",
             environment=environment,
         )
 
@@ -96,6 +98,22 @@ class HlsCompositesStack(Stack):
                     actions=["sts:AssumeRole"],
                 )
             )
+
+        # ----------------------------------------------------------------------
+        # Job monitoring
+        # ----------------------------------------------------------------------
+        self.monitoring = JobMonitoring(
+            self,
+            "Monitoring",
+            job_queue=self.batch_infra.queue,
+            job_definition=self.processing_job.job_def,
+            processing_bucket_name=settings.PROCESSING_BUCKET_NAME,
+            retry_max_attempts=settings.JOB_RETRY_MAX_ATTEMPTS,
+            stage=settings.STAGE,
+            database_name=settings.ATHENA_DATABASE_NAME,
+            inventory_start_datetime=settings.ATHENA_INVENTORY_START_DATETIME,
+            year_month_start=settings.YEAR_MONTH_PARTITION_START,
+        )
 
         CfnOutput(
             self,

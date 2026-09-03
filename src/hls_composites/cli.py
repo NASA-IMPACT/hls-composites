@@ -75,6 +75,8 @@ def main(
     s3_client = boto3.client("s3")
     granules = scan_bucket_for_granules(s3_client, bucket, tile_id, date_range)
 
+    # FIXME: exit with some specific exit code we can parse in job monitor
+    #        (could be useful for leading edge)
     if not granules:
         dest = output_dir / composite_id(tile_id, date_range)
         dest.mkdir(parents=True, exist_ok=True)

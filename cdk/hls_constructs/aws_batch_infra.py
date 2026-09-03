@@ -23,6 +23,7 @@ class BatchInfra(Construct):
         max_vcpu: int,
         ami_id: str,
         job_queue_name: str,
+        stage: str,
         **kwargs: Any,
     ) -> None:
         """Set up an AWS Batch ComputeEnvironment and JobQueue.
@@ -44,6 +45,12 @@ class BatchInfra(Construct):
             `resolve:ssm:/param-name`).
         job_queue_name:
             Name of the JobQueue jobs are submitted to.
+        stage:
+            Deployment stage, carried into the ComputeEnvironment's construct id.
+            A replaceable compute environment cannot be given an explicit name,
+            and its generated name is the first 24 characters of its logical id
+            plus a hash -- so the stage has to appear early in the id to be
+            readable at all.
         """
         super().__init__(scope, construct_id, **kwargs)
 
@@ -101,7 +108,7 @@ class BatchInfra(Construct):
 
         self.compute_environment = batch.ManagedEc2EcsComputeEnvironment(
             self,
-            "ComputeEnvironment",
+            f"CE-{stage.capitalize()}",
             allocation_strategy=batch.AllocationStrategy.SPOT_CAPACITY_OPTIMIZED,
             images=[ecs_machine_image],
             launch_template=launch_template,
