@@ -126,7 +126,7 @@ def test_job_definition_uses_configured_container(template):
         assertions.Match.object_like(
             {
                 "Type": "container",
-                "Timeout": {"AttemptDurationSeconds": 7200},
+                "Timeout": {"AttemptDurationSeconds": 3600},
                 "RetryStrategy": assertions.Match.object_like({"Attempts": 3}),
                 "ContainerProperties": assertions.Match.object_like(
                     {
