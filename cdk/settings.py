@@ -39,7 +39,7 @@ class StackSettings(BaseSettings):
     # Bucket the monthly composites are written to
     OUTPUT_BUCKET_NAME: str
     # Key prefix within that bucket, e.g. "M30/data". Empty writes at the root.
-    OUTPUT_PREFIX: str = ""
+    OUTPUT_PREFIX: str = "M30/data"
 
     # Bucket the job monitor writes records, state pointers, and output index
     # entries to. Created by the batch-event-job-monitor ProcessingBucket
