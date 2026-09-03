@@ -55,3 +55,15 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
+
+  deploy-prod:
+    # Deploy to prod only once the release image is in ECR, since the prod stack's
+    # PROCESSING_CONTAINER_ECR_URI points at it.
+    needs: release-build
+    permissions:
+      id-token: write
+      contents: read
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: prod
+    secrets: inherit

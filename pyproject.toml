@@ -31,6 +31,11 @@ dev = [
 seed = [
     "earthaccess>=0.18.0",
 ]
+deploy = [
+    "aws-cdk-lib>=2.180.0",
+    "constructs>=10.4.2",
+    "pydantic-settings>=2.8.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.9.10,<0.10.0"]
@@ -40,15 +45,23 @@ build-backend = "uv_build"
 # HLS granule IDs encode date-only day-of-year; naive datetimes are intentional.
 ignore = ["DTZ007"]
 
+[tool.ruff.lint.isort]
+# `cdk.json` runs `python3 cdk/app.py`, so modules under `cdk/` import each other
+# by bare name rather than through a package.
+known-first-party = ["hls_constructs", "settings", "stack"]
+combine-as-imports = true
+
 [tool.mypy]
-files = ["src"]
+files = ["src", "cdk"]
 python_version = "3.12"
+plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
 module = ["rasterio.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
+norecursedirs = ["cdk.out"]
 # Fully-masked pixels legitimately trip these in nanmedian/nanstd.
 filterwarnings = [
     "ignore:All-NaN slice encountered:RuntimeWarning",
