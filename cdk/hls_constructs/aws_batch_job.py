@@ -46,7 +46,7 @@ class BatchJob(Construct):
         vcpu: int,
         memory_mb: int,
         retry_attempts: int,
-        timeout_hours: int,
+        timeout_minutes: int,
         log_group_name: str,
         log_retention: logs.RetentionDays,
         job_role_name: str,
@@ -67,8 +67,8 @@ class BatchJob(Construct):
             Memory, in MiB, reserved for each job.
         retry_attempts:
             Number of AWS Batch attempts per job.
-        timeout_hours:
-            Wall-clock limit after which AWS Batch terminates an attempt.
+        timeout_minutes:
+            Wall-clock limit, in minutes, after which AWS Batch terminates an attempt.
         log_group_name:
             Name of the log group job logs are written to.
         log_retention:
@@ -157,7 +157,7 @@ class BatchJob(Construct):
                 secrets=secrets,
                 environment=environment or {},
             ),
-            timeout=Duration.hours(timeout_hours),
+            timeout=Duration.minutes(timeout_minutes),
             retry_attempts=retry_attempts,
             retry_strategies=[
                 batch.RetryStrategy.of(

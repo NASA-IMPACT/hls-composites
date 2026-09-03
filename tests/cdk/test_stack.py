@@ -34,6 +34,7 @@ def build_settings(**overrides) -> StackSettings:
         "BATCH_MAX_VCPU": 32,
         "PROCESSING_JOB_VCPU": 4,
         "PROCESSING_JOB_MEMORY_MB": 16_000,
+        "PROCESSING_JOB_TIMEOUT_MINUTES": 45,
     }
     values.update(overrides)
     # Ignore any real environment; these settings are the whole input to the stack.
@@ -126,7 +127,7 @@ def test_job_definition_uses_configured_container(template):
         assertions.Match.object_like(
             {
                 "Type": "container",
-                "Timeout": {"AttemptDurationSeconds": 7200},
+                "Timeout": {"AttemptDurationSeconds": 45 * 60},
                 "RetryStrategy": assertions.Match.object_like({"Attempts": 3}),
                 "ContainerProperties": assertions.Match.object_like(
                     {

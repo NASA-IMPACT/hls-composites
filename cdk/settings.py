@@ -38,6 +38,8 @@ class StackSettings(BaseSettings):
     INPUT_BUCKET_NAME: str
     # Bucket the monthly composites are written to
     OUTPUT_BUCKET_NAME: str
+    # Key prefix within that bucket, e.g. "M30/data". Empty writes at the root.
+    OUTPUT_PREFIX: str = "M30/data"
 
     # Bucket the job monitor writes records, state pointers, and output index
     # entries to. Created by the batch-event-job-monitor ProcessingBucket
@@ -55,7 +57,7 @@ class StackSettings(BaseSettings):
     PROCESSING_JOB_VCPU: int = 2
     PROCESSING_JOB_MEMORY_MB: int = 8_000
     PROCESSING_JOB_RETRY_ATTEMPTS: int = 3
-    PROCESSING_JOB_TIMEOUT_HOURS: int = 2
+    PROCESSING_JOB_TIMEOUT_MINUTES: int = 30
     # Custom log group (otherwise logs land in the catch-all AWS Batch log group)
     PROCESSING_LOG_GROUP_NAME: str
     PROCESSING_LOG_RETENTION: logs.RetentionDays = logs.RetentionDays.ONE_MONTH

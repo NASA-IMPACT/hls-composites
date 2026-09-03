@@ -1,7 +1,8 @@
 """Shared data types for granule discovery and composite creation."""
 
+import calendar
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
 
 Satellite = Literal["L30", "S30"]
@@ -50,6 +51,32 @@ class DateRange:
     def __post_init__(self) -> None:
         if self.start > self.end:
             raise ValueError(f"start {self.start} is after end {self.end}")
+
+    @classmethod
+    def for_month(cls, year_month: str) -> "DateRange":
+        """Build the range covering one calendar month.
+
+        Parameters
+        ----------
+        year_month : str
+            Month as ``YYYY-MM``, e.g. ``"2015-07"``.
+
+        Returns
+        -------
+        DateRange
+            First through last day of that month, inclusive.
+
+        Raises
+        ------
+        ValueError
+            If `year_month` is not in ``YYYY-MM`` form.
+        """
+        try:
+            first = datetime.strptime(year_month, "%Y-%m").date()
+        except ValueError as error:
+            raise ValueError(f"expected YYYY-MM, got {year_month!r}") from error
+        last_day = calendar.monthrange(first.year, first.month)[1]
+        return cls(first, first.replace(day=last_day))
 
     def __contains__(self, d: date) -> bool:
         """Check whether a date falls within this range, inclusive.

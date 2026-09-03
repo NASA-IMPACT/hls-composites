@@ -69,6 +69,8 @@ class HlsCompositesStack(Stack):
             "HLS_BUCKET": settings.INPUT_BUCKET_NAME,
             "OUTPUT_BUCKET": settings.OUTPUT_BUCKET_NAME,
         }
+        if settings.OUTPUT_PREFIX:
+            environment["OUTPUT_PREFIX"] = settings.OUTPUT_PREFIX
         if settings.LPDAAC_READER_ROLE_ARN:
             environment["LPDAAC_READER_ROLE_ARN"] = settings.LPDAAC_READER_ROLE_ARN
 
@@ -79,7 +81,7 @@ class HlsCompositesStack(Stack):
             vcpu=settings.PROCESSING_JOB_VCPU,
             memory_mb=settings.PROCESSING_JOB_MEMORY_MB,
             retry_attempts=settings.PROCESSING_JOB_RETRY_ATTEMPTS,
-            timeout_hours=settings.PROCESSING_JOB_TIMEOUT_HOURS,
+            timeout_minutes=settings.PROCESSING_JOB_TIMEOUT_MINUTES,
             log_group_name=settings.PROCESSING_LOG_GROUP_NAME,
             log_retention=settings.PROCESSING_LOG_RETENTION,
             job_role_name=f"hls-composites-processing-role-{settings.STAGE}",

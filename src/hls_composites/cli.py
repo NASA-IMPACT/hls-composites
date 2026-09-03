@@ -1,28 +1,17 @@
-"""Command-line entrypoint: discover -> composite -> write for one tile-month."""
+"""Command-line entrypoint: argument handling around `pipeline.create_composite`."""
 
-import calendar
-from datetime import datetime
 from pathlib import Path
 
-import boto3
 import click
 
-from hls_composites.composite import CompositeOutput, build_composite
-from hls_composites.discovery import scan_bucket_for_granules
-from hls_composites.io import composite_id, write_composite
+from hls_composites.composite import CompositeOutput
 from hls_composites.models import DateRange
-
-
-def _month_range(year_month: str) -> DateRange:
-    """Parse a ``YYYY-MM`` string into that calendar month's `DateRange`."""
-    try:
-        first = datetime.strptime(year_month, "%Y-%m").date()
-    except ValueError as error:
-        raise click.BadParameter(
-            f"expected YYYY-MM, got {year_month!r}", param_hint="--year-month"
-        ) from error
-    last_day = calendar.monthrange(first.year, first.month)[1]
-    return DateRange(first, first.replace(day=last_day))
+from hls_composites.pipeline import (
+    Destination,
+    LocalDestination,
+    S3Destination,
+    create_composite,
+)
 
 
 @click.command()
@@ -42,9 +31,33 @@ def _month_range(year_month: str) -> DateRange:
 @click.option(
     "--output-dir",
     "output_dir",
-    required=True,
     type=click.Path(file_okay=False, path_type=Path),
     help="Local directory to write the composite into.",
+)
+@click.option(
+    "--output-bucket",
+    "output_bucket",
+    envvar="OUTPUT_BUCKET",
+    help="S3 bucket to upload the composite to (or set OUTPUT_BUCKET).",
+)
+@click.option(
+    "--output-prefix",
+    "output_prefix",
+    envvar="OUTPUT_PREFIX",
+    default="",
+    help=(
+        "Key prefix within --output-bucket, e.g. M30/data (or set "
+        "OUTPUT_PREFIX). Composites land under {prefix}/{granule_id}/."
+    ),
+)
+@click.option(
+    "--role-arn",
+    "role_arn",
+    envvar="LPDAAC_READER_ROLE_ARN",
+    help=(
+        "IAM role to assume for reading input granules (or set "
+        "LPDAAC_READER_ROLE_ARN). Omit to use ambient credentials."
+    ),
 )
 @click.option(
     "--indexes",
@@ -62,31 +75,39 @@ def main(
     tile_id: str,
     year_month: str,
     bucket: str,
-    output_dir: Path,
+    output_dir: Path | None,
+    output_bucket: str | None,
+    output_prefix: str,
+    role_arn: str | None,
     indexes: bool,
     bands: bool,
 ) -> None:
-    """Build the monthly HLS composite for one tile and write it locally."""
+    """Build the monthly HLS composite for one tile and write it out."""
     if indexes and bands:
         raise click.UsageError("--indexes and --bands are mutually exclusive")
+    if bool(output_dir) == bool(output_bucket):
+        raise click.UsageError(
+            "exactly one of --output-dir or --output-bucket is required"
+        )
+
+    try:
+        date_range = DateRange.for_month(year_month)
+    except ValueError as error:
+        raise click.BadParameter(str(error), param_hint="--year-month") from error
+
+    destination: Destination = (
+        S3Destination(output_bucket, output_prefix)
+        if output_bucket
+        else LocalDestination(output_dir)  # type: ignore[arg-type]
+    )
     output: CompositeOutput = "bands" if bands else "indexes"
 
-    date_range = _month_range(year_month)
-    s3_client = boto3.client("s3")
-    granules = scan_bucket_for_granules(s3_client, bucket, tile_id, date_range)
-
-    # FIXME: exit with some specific exit code we can parse in job monitor
-    #        (could be useful for leading edge)
-    if not granules:
-        dest = output_dir / composite_id(tile_id, date_range)
-        dest.mkdir(parents=True, exist_ok=True)
-        (dest / "No granules found").touch()
-        click.echo(f"No granules found for {tile_id} {year_month}; wrote {dest}")
-        return
-
-    click.echo(
-        f"Compositing {output} from {len(granules)} granules for {tile_id} {year_month}"
+    create_composite(
+        tile_id=tile_id,
+        date_range=date_range,
+        input_bucket=bucket,
+        destination=destination,
+        output=output,
+        role_arn=role_arn,
+        on_progress=click.echo,
     )
-    composite = build_composite(granules, output=output)
-    dest = write_composite(composite, output_dir, tile_id, date_range)
-    click.echo(f"Wrote composite to {dest}")

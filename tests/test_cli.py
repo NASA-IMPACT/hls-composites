@@ -1,173 +1,115 @@
+"""The CLI's own job: parse arguments, validate them, call the pipeline."""
+
 from datetime import date
+from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
 
 from hls_composites import cli
-from hls_composites.models import DateRange, Granule
+from hls_composites.models import DateRange
+from hls_composites.pipeline import CompositeResult, LocalDestination, S3Destination
 
 
-def _patch_pipeline(monkeypatch, captured, granules):
-    def fake_scan(s3, bucket, tile, date_range, **kwargs):
-        captured["scan"] = {"bucket": bucket, "tile": tile, "date_range": date_range}
-        return granules
+@pytest.fixture
+def called(monkeypatch):
+    """Capture the keyword arguments the CLI hands to the pipeline."""
+    seen: dict = {}
 
-    def fake_build(granules, **kwargs):
-        captured["build"] = {"n": len(granules)}
-        captured["build_kwargs"] = kwargs
-        return "DATASET"
+    def fake_create(**kwargs):
+        seen.update(kwargs)
+        return CompositeResult("GRAN", 1, [])
 
-    def fake_write(ds, out_dir, tile, date_range, **kwargs):
-        captured["write"] = {"ds": ds, "tile": tile, "date_range": date_range}
-        return "/tmp/dest"
-
-    monkeypatch.setattr(cli, "scan_bucket_for_granules", fake_scan)
-    monkeypatch.setattr(cli, "build_composite", fake_build)
-    monkeypatch.setattr(cli, "write_composite", fake_write)
-    monkeypatch.setattr(cli.boto3, "client", lambda *a, **k: object())
+    monkeypatch.setattr(cli, "create_composite", fake_create)
+    return seen
 
 
-def test_cli_maps_year_month_to_month_range_and_wires_args(monkeypatch, tmp_path):
-    captured: dict = {}
-    _patch_pipeline(
-        monkeypatch, captured, [Granule("s3://b/g", "L30", date(2015, 7, 10))]
-    )
-
-    result = CliRunner().invoke(
-        cli.main,
-        [
-            "--tile-id",
-            "14TPN",
-            "--year-month",
-            "2015-07",
-            "--bucket",
-            "my-bucket",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert captured["scan"]["bucket"] == "my-bucket"
-    assert captured["scan"]["tile"] == "14TPN"
-    assert captured["scan"]["date_range"] == DateRange(
-        date(2015, 7, 1), date(2015, 7, 31)
-    )
-    assert captured["build"] == {"n": 1}
-    assert captured["write"]["tile"] == "14TPN"
-    assert captured["write"]["ds"] == "DATASET"
-
-
-def test_cli_bucket_falls_back_to_env(monkeypatch, tmp_path):
-    captured: dict = {}
-    _patch_pipeline(
-        monkeypatch, captured, [Granule("s3://b/g", "L30", date(2015, 7, 10))]
-    )
-    monkeypatch.setenv("HLS_BUCKET", "env-bucket")
-
-    result = CliRunner().invoke(
-        cli.main,
-        [
-            "--tile-id",
-            "14TPN",
-            "--year-month",
-            "2015-07",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert captured["scan"]["bucket"] == "env-bucket"
-
-
-def test_cli_rejects_malformed_year_month(monkeypatch, tmp_path):
-    captured: dict = {}
-    _patch_pipeline(monkeypatch, captured, [])
-
-    result = CliRunner().invoke(
-        cli.main,
-        [
-            "--tile-id",
-            "14TPN",
-            "--year-month",
-            "2015/07",
-            "--bucket",
-            "my-bucket",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "YYYY-MM" in result.output
-
-
-def test_cli_no_granules_skips_build_and_writes_marker(monkeypatch, tmp_path):
-    captured: dict = {}
-    _patch_pipeline(monkeypatch, captured, [])
-
-    result = CliRunner().invoke(
-        cli.main,
-        [
-            "--tile-id",
-            "14TPN",
-            "--year-month",
-            "2015-07",
-            "--bucket",
-            "my-bucket",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert "build" not in captured  # build_composite must not run
-    marker = tmp_path / "HLS.M30.T14TPN.2015182.2015212.v2.0" / "No granules found"
-    assert marker.exists()
-
-
-def _invoke(tmp_path, *extra):
+def invoke(*extra, env=None):
+    base = ["--tile-id", "14TPN", "--year-month", "2015-07", "--bucket", "in-bucket"]
     return CliRunner().invoke(
-        cli.main,
-        [
-            "--tile-id",
-            "14TPN",
-            "--year-month",
-            "2015-07",
-            "--bucket",
-            "my-bucket",
-            "--output-dir",
-            str(tmp_path),
-            *extra,
-        ],
+        cli.main, [*base, *extra], env={"OUTPUT_BUCKET": "", **(env or {})}
     )
 
 
-@pytest.mark.parametrize(
-    ("flags", "expected"),
-    [((), "indexes"), (("--indexes",), "indexes"), (("--bands",), "bands")],
-)
-def test_cli_flags_select_the_composite_output(monkeypatch, tmp_path, flags, expected):
-    captured: dict = {}
-    _patch_pipeline(
-        monkeypatch, captured, [Granule("s3://b/g", "L30", date(2015, 7, 10))]
-    )
+class TestArgumentWiring:
+    def test_year_month_becomes_that_calendar_month(self, called, tmp_path):
+        result = invoke("--output-dir", str(tmp_path))
 
-    result = _invoke(tmp_path, *flags)
+        assert result.exit_code == 0, result.output
+        assert called["date_range"] == DateRange(date(2015, 7, 1), date(2015, 7, 31))
+        assert called["tile_id"] == "14TPN"
+        assert called["input_bucket"] == "in-bucket"
 
-    assert result.exit_code == 0, result.output
-    assert captured["build_kwargs"]["output"] == expected
+    def test_output_dir_becomes_a_local_destination(self, called, tmp_path):
+        invoke("--output-dir", str(tmp_path))
+
+        assert called["destination"] == LocalDestination(Path(tmp_path))
+
+    def test_output_bucket_and_prefix_become_an_s3_destination(self, called):
+        invoke("--output-bucket", "out-bucket", "--output-prefix", "M30/data")
+
+        assert called["destination"] == S3Destination("out-bucket", "M30/data")
+
+    def test_role_arn_is_passed_through(self, called, tmp_path):
+        invoke("--output-dir", str(tmp_path), "--role-arn", "arn:aws:iam::1:role/r")
+
+        assert called["role_arn"] == "arn:aws:iam::1:role/r"
+
+    def test_indexes_is_the_default_output(self, called, tmp_path):
+        invoke("--output-dir", str(tmp_path))
+
+        assert called["output"] == "indexes"
+
+    def test_bands_selects_the_reflectance_output(self, called, tmp_path):
+        invoke("--output-dir", str(tmp_path), "--bands")
+
+        assert called["output"] == "bands"
+
+    def test_env_vars_supply_defaults(self, called):
+        """The container sets these; flags override them."""
+        result = invoke(
+            env={"OUTPUT_BUCKET": "env-bucket", "OUTPUT_PREFIX": "M30/data"}
+        )
+
+        assert result.exit_code == 0, result.output
+        assert called["destination"] == S3Destination("env-bucket", "M30/data")
 
 
-def test_cli_rejects_bands_and_indexes_together(monkeypatch, tmp_path):
-    captured: dict = {}
-    _patch_pipeline(
-        monkeypatch, captured, [Granule("s3://b/g", "L30", date(2015, 7, 10))]
-    )
+class TestValidation:
+    def test_both_output_targets_is_an_error(self, called, tmp_path):
+        result = invoke("--output-dir", str(tmp_path), "--output-bucket", "out")
 
-    result = _invoke(tmp_path, "--bands", "--indexes")
+        assert result.exit_code != 0
+        assert "exactly one of" in result.output
 
-    assert result.exit_code != 0
-    assert "mutually exclusive" in result.output
-    assert "build" not in captured
+    def test_neither_output_target_is_an_error(self, called):
+        result = invoke()
+
+        assert result.exit_code != 0
+        assert "exactly one of" in result.output
+
+    def test_indexes_and_bands_are_mutually_exclusive(self, called, tmp_path):
+        result = invoke("--output-dir", str(tmp_path), "--indexes", "--bands")
+
+        assert result.exit_code != 0
+        assert "mutually exclusive" in result.output
+
+    def test_a_malformed_month_is_reported_against_the_flag(self, called, tmp_path):
+        result = CliRunner().invoke(
+            cli.main,
+            [
+                "--tile-id",
+                "14TPN",
+                "--year-month",
+                "July 2015",
+                "--bucket",
+                "in-bucket",
+                "--output-dir",
+                str(tmp_path),
+            ],
+            env={"OUTPUT_BUCKET": ""},
+        )
+
+        assert result.exit_code != 0
+        assert "--year-month" in result.output
+        assert "expected YYYY-MM" in result.output
