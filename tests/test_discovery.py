@@ -184,3 +184,21 @@ def test_scan_bucket_for_granules_orders_same_day_granules_by_path():
 
     assert [g.date for g in granules] == [date(2020, 1, 5), date(2020, 1, 5)]
     assert [g.path for g in granules] == sorted(g.path for g in granules)
+
+
+def test_listing_is_billed_to_the_requester():
+    """LP DAAC's buckets are requester-pays; S3 ignores this elsewhere."""
+    seen: dict = {}
+
+    class RecordingPaginator:
+        def paginate(self, **kwargs):
+            seen.update(kwargs)
+            return iter([{}])
+
+    class RecordingClient:
+        def get_paginator(self, name: str):
+            return RecordingPaginator()
+
+    list_common_prefixes(RecordingClient(), "bucket", "2020/")
+
+    assert seen["RequestPayer"] == "requester"

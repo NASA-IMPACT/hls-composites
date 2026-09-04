@@ -18,7 +18,7 @@ import rasterio
 import rioxarray  # noqa: F401  (registers the .rio accessor)
 import xarray as xr
 
-from hls_composites.composite import BLOCK_SIZE
+from hls_composites.composite import BLOCK_SIZE, BROWSE_BANDS
 from hls_composites.models import DateRange
 
 
@@ -89,26 +89,28 @@ def _write_geotiff(
             dst.scales = (scale,)
 
 
-def write_composite(
-    ds: xr.Dataset,
+def write_rasters(
+    computed: xr.Dataset,
     out_dir: str | Path,
     tile: str,
     date_range: DateRange,
     block_size: int = BLOCK_SIZE,
     creation_options: GeoTiffCreationOptions | None = None,
 ) -> Path:
-    """Write each variable of a composite Dataset to a tiled GeoTIFF.
+    """Write each product variable of a computed composite to a GeoTIFF.
 
-    The Dataset is computed once (a single fused pass over its lazy graph),
-    then each variable is written to `{out_dir}/{granule_id}/{granule_id}.{var}.tif`
-    with internal `block_size` tiling, the given creation options, and the
-    variable's own nodata/scale attrs.
+    Takes an already-computed Dataset rather than computing one, so the same
+    arrays can also feed the browse-image renderer without a second pass over
+    the graph.
+
+    Variables named in `BROWSE_BANDS` are skipped: they are composited for the
+    browse image and are not products.
 
     Parameters
     ----------
-    ds : xarray.Dataset
-        Composite from `build_composite` (lazy or already computed), carrying
-        CRS/transform and per-variable `nodata`/`scale_factor` attrs.
+    computed : xarray.Dataset
+        Computed composite, carrying CRS/transform and per-variable
+        `nodata`/`scale_factor` attrs.
     out_dir : str or pathlib.Path
         Directory the `{granule_id}/` output folder is created under.
     tile : str
@@ -116,11 +118,9 @@ def write_composite(
     date_range : DateRange
         The composite's date range (see `composite_id`).
     block_size : int, optional
-        Internal GeoTIFF tile size, by default `BLOCK_SIZE` (512).
+        Internal GeoTIFF tile size, by default `BLOCK_SIZE`.
     creation_options : GeoTiffCreationOptions or None, optional
-        GDAL GeoTIFF creation options (e.g. `compress`, `predictor`), merged
-        over the internal-tiling defaults. Defaults to `DEFAULT_CREATION_OPTIONS`
-        when None.
+        GDAL GeoTIFF creation options, by default `DEFAULT_CREATION_OPTIONS`.
 
     Returns
     -------
@@ -129,11 +129,12 @@ def write_composite(
     """
     if creation_options is None:
         creation_options = DEFAULT_CREATION_OPTIONS
-    computed = ds.compute()
     granule_id = composite_id(tile, date_range)
     dest = Path(out_dir) / granule_id
     dest.mkdir(parents=True, exist_ok=True)
     for name, array in computed.data_vars.items():
+        if name in BROWSE_BANDS:
+            continue
         _write_geotiff(
             dest / f"{granule_id}.{name}.tif", array, block_size, creation_options
         )

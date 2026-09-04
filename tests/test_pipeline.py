@@ -1,6 +1,9 @@
+import os
+from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 
+import boto3
 import pytest
 
 from hls_composites import pipeline
@@ -25,11 +28,17 @@ def stages(monkeypatch, tmp_path):
         captured["scan"] = {"bucket": bucket, "tile": tile, "date_range": date_range}
         return captured.get("granules", GRANULES)
 
+    class FakeDataset:
+        """Stands in for a lazy composite; compute() returns itself."""
+
+        def compute(self):
+            return self
+
     def fake_build(granules, **kwargs):
         captured["build"] = {"n": len(granules), "kwargs": kwargs}
-        return "DATASET"
+        return FakeDataset()
 
-    def fake_write(ds, out_dir, tile, date_range, **kwargs):
+    def fake_write(computed, out_dir, tile, date_range, **kwargs):
         dest = Path(out_dir) / "HLS.M30.T14TPN.2015182.2015212.v2.0"
         dest.mkdir(parents=True, exist_ok=True)
         (dest / "a.NDVI.tif").write_bytes(b"x")
@@ -38,11 +47,13 @@ def stages(monkeypatch, tmp_path):
 
     monkeypatch.setattr(pipeline, "scan_bucket_for_granules", fake_scan)
     monkeypatch.setattr(pipeline, "build_composite", fake_build)
-    monkeypatch.setattr(pipeline, "write_composite", fake_write)
+    monkeypatch.setattr(pipeline, "write_rasters", fake_write)
     # Metadata reads the written rasters, which these stubs do not produce.
     # Tests that care about it override this.
     monkeypatch.setattr(pipeline, "write_metadata", lambda *a, **k: [])
-    monkeypatch.setattr(pipeline.boto3, "client", lambda *a, **k: object())
+    monkeypatch.setattr(pipeline, "write_browse_image", lambda computed, path: path)
+    # No boto3 stub: discovery and upload are faked, so the clients the
+    # pipeline builds are never used to make a request.
     return captured
 
 
@@ -155,7 +166,7 @@ class TestReaderRole:
         @contextmanager
         def fake_env(role_arn, **kwargs):
             seen["role_arn"] = role_arn
-            yield role_arn
+            yield boto3.Session()
 
         monkeypatch.setattr(pipeline, "assumed_role_env", fake_env)
 
@@ -181,11 +192,14 @@ class TestMetadata:
     ):
         written: dict = {}
 
-        def fake_write_metadata(tile_id, date_range, granule_dir, inputs=None):
+        def fake_write_metadata(
+            tile_id, date_range, granule_dir, inputs=None, browse_image=None
+        ):
             written.update(
                 tile_id=tile_id,
                 granule_dir=Path(granule_dir),
                 inputs=list(inputs or []),
+                browse_image=browse_image,
             )
             return []
 
@@ -197,6 +211,8 @@ class TestMetadata:
         assert written["granule_dir"] == stages["write"]["dest"]
         # Provenance: the discovered granules reach the metadata.
         assert written["inputs"] == GRANULES
+        # The rendered preview is referenced from the metadata.
+        assert written["browse_image"].name.endswith(".jpg")
 
     def test_no_metadata_when_no_granules_were_found(
         self, stages, monkeypatch, tmp_path
@@ -240,3 +256,74 @@ class TestMetadata:
         run(S3Destination("out-bucket"))
 
         assert order == ["metadata", "upload"]
+
+
+class TestRequesterPays:
+    def test_reads_are_billed_to_the_requester(self, stages, monkeypatch, tmp_path):
+        """Set during discovery, which is when GDAL and boto3 need it."""
+        monkeypatch.delenv("AWS_REQUEST_PAYER", raising=False)
+        seen: list[str | None] = []
+
+        original = pipeline.scan_bucket_for_granules
+
+        def recording_scan(*args, **kwargs):
+            seen.append(os.environ.get("AWS_REQUEST_PAYER"))
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(pipeline, "scan_bucket_for_granules", recording_scan)
+
+        run(LocalDestination(tmp_path))
+
+        assert seen == ["requester"]
+
+    def test_the_variable_does_not_leak_past_the_reads(
+        self, stages, monkeypatch, tmp_path
+    ):
+        """The upload runs unbilled, as its own identity."""
+        monkeypatch.delenv("AWS_REQUEST_PAYER", raising=False)
+
+        run(LocalDestination(tmp_path))
+
+        assert "AWS_REQUEST_PAYER" not in os.environ
+
+
+class TestCredentialFreshness:
+    """boto3's default session caches the first credentials it resolves."""
+
+    def test_discovery_client_carries_the_assumed_credentials(
+        self, stages, monkeypatch, tmp_path
+    ):
+        import boto3
+
+        for name in ("AWS_PROFILE", "AWS_SESSION_TOKEN"):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv("AWS_DEFAULT_REGION", "us-west-2")
+        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AMBIENT")
+        monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "ambient-secret")
+        boto3.client("sts")  # populate the default session, as assume_role does
+
+        @contextmanager
+        def fake_env(role_arn, **kwargs):
+            monkeypatch.setenv("AWS_ACCESS_KEY_ID", "ASSUMED")
+            monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "assumed-secret")
+            monkeypatch.setenv("AWS_SESSION_TOKEN", "token")
+            yield boto3.Session(
+                aws_access_key_id="ASSUMED",
+                aws_secret_access_key="assumed-secret",
+                aws_session_token="token",
+            )
+
+        monkeypatch.setattr(pipeline, "assumed_role_env", fake_env)
+
+        seen: dict = {}
+        original = pipeline.scan_bucket_for_granules
+
+        def recording(client, *args, **kwargs):
+            seen["key"] = client._request_signer._credentials.access_key
+            return original(client, *args, **kwargs)
+
+        monkeypatch.setattr(pipeline, "scan_bucket_for_granules", recording)
+
+        run(LocalDestination(tmp_path), role_arn="arn:aws:iam::1:role/reader")
+
+        assert seen["key"] == "ASSUMED"

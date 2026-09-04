@@ -49,6 +49,8 @@ COMPOSITING_ALGORITHM = (
     "Per-pixel selection of the observation closest to the median EVI2"
 )
 DATA_FORMAT = "Cloud Optimized GeoTIFF (COG)"
+BROWSE_DESCRIPTION = "Browse image"
+"""Description the DAAC shows for the browse image."""
 SPATIAL_RESOLUTION = 30.0
 DAY_NIGHT_FLAG = "DAY"
 
@@ -172,6 +174,8 @@ class GranuleMetadata:
         Total size of those files.
     inputs : list of InputGranule
         The granules composited, in discovery order. Empty when unknown.
+    browse_image : pathlib.Path or None
+        The rendered browse image, or None when none was produced.
     """
 
     granule_id: str
@@ -194,6 +198,7 @@ class GranuleMetadata:
     assets: list[Path]
     size_bytes: int
     inputs: list[InputGranule] = field(default_factory=list)
+    browse_image: Path | None = None
 
 
 def _crs_name(crs: rasterio.crs.CRS) -> str:
@@ -218,6 +223,7 @@ def granule_metadata(
     date_range: DateRange,
     granule_dir: Path,
     inputs: list[Granule] | None = None,
+    browse_image: Path | None = None,
     produced_at: dt.datetime | None = None,
 ) -> GranuleMetadata:
     """Describe a written composite directory.
@@ -233,6 +239,8 @@ def granule_metadata(
     inputs : list of Granule, optional
         The granules composited. Recorded as provenance; omitted from both
         documents when not given.
+    browse_image : pathlib.Path, optional
+        The rendered browse image. Referenced from both documents when given.
     produced_at : datetime.datetime, optional
         Production time, by default the current UTC time.
 
@@ -284,4 +292,5 @@ def granule_metadata(
         assets=assets,
         size_bytes=sum(path.stat().st_size for path in assets),
         inputs=_provenance(inputs or []),
+        browse_image=browse_image,
     )

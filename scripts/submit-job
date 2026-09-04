@@ -27,11 +27,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--year-month", required=True, help="Composite month, YYYY-MM")
     parser.add_argument("--job-queue", required=True)
     parser.add_argument("--job-definition", required=True)
-    parser.add_argument(
-        "--output-dir",
-        default="/tmp/composites",
-        help="Container-local output directory",
-    )
     parser.add_argument("--region", default="us-west-2")
     return parser.parse_args()
 
@@ -62,8 +57,6 @@ def main() -> None:
                     args.tile_id,
                     "--year-month",
                     args.year_month,
-                    "--output-dir",
-                    args.output_dir,
                 ],
             },
         },
