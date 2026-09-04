@@ -15,9 +15,10 @@ from pathlib import Path
 import boto3
 
 from hls_composites.aws import assumed_role_env, upload_directory
+from hls_composites.browse import write_browse_image
 from hls_composites.composite import CompositeOutput, build_composite
 from hls_composites.discovery import scan_bucket_for_granules
-from hls_composites.io import composite_id, write_composite
+from hls_composites.io import composite_id, write_rasters
 from hls_composites.metadata.writer import write_metadata
 from hls_composites.models import DateRange
 
@@ -133,13 +134,17 @@ def create_composite(
                     f"for {tile_id} in {date_range}"
                 )
                 composite = build_composite(granules, output=output)
-                dest = Path(write_composite(composite, work_dir, tile_id, date_range))
+                computed = composite.compute()
+                dest = Path(write_rasters(computed, work_dir, tile_id, date_range))
+                browse = write_browse_image(computed, dest / f"{dest.name}.jpg")
 
         # CNM, the message that notifies ingest a granule is ready, is a
         # separate follow-up. These documents describe the granule; CNM points
         # at them.
         if granules:
-            documents = write_metadata(tile_id, date_range, dest, inputs=granules)
+            documents = write_metadata(
+                tile_id, date_range, dest, inputs=granules, browse_image=browse
+            )
             on_progress(f"Wrote {len(documents)} metadata documents")
 
         if isinstance(destination, S3Destination):

@@ -25,11 +25,17 @@ def stages(monkeypatch, tmp_path):
         captured["scan"] = {"bucket": bucket, "tile": tile, "date_range": date_range}
         return captured.get("granules", GRANULES)
 
+    class FakeDataset:
+        """Stands in for a lazy composite; compute() returns itself."""
+
+        def compute(self):
+            return self
+
     def fake_build(granules, **kwargs):
         captured["build"] = {"n": len(granules), "kwargs": kwargs}
-        return "DATASET"
+        return FakeDataset()
 
-    def fake_write(ds, out_dir, tile, date_range, **kwargs):
+    def fake_write(computed, out_dir, tile, date_range, **kwargs):
         dest = Path(out_dir) / "HLS.M30.T14TPN.2015182.2015212.v2.0"
         dest.mkdir(parents=True, exist_ok=True)
         (dest / "a.NDVI.tif").write_bytes(b"x")
@@ -38,10 +44,11 @@ def stages(monkeypatch, tmp_path):
 
     monkeypatch.setattr(pipeline, "scan_bucket_for_granules", fake_scan)
     monkeypatch.setattr(pipeline, "build_composite", fake_build)
-    monkeypatch.setattr(pipeline, "write_composite", fake_write)
+    monkeypatch.setattr(pipeline, "write_rasters", fake_write)
     # Metadata reads the written rasters, which these stubs do not produce.
     # Tests that care about it override this.
     monkeypatch.setattr(pipeline, "write_metadata", lambda *a, **k: [])
+    monkeypatch.setattr(pipeline, "write_browse_image", lambda computed, path: path)
     monkeypatch.setattr(pipeline.boto3, "client", lambda *a, **k: object())
     return captured
 
@@ -181,11 +188,14 @@ class TestMetadata:
     ):
         written: dict = {}
 
-        def fake_write_metadata(tile_id, date_range, granule_dir, inputs=None):
+        def fake_write_metadata(
+            tile_id, date_range, granule_dir, inputs=None, browse_image=None
+        ):
             written.update(
                 tile_id=tile_id,
                 granule_dir=Path(granule_dir),
                 inputs=list(inputs or []),
+                browse_image=browse_image,
             )
             return []
 
@@ -197,6 +207,8 @@ class TestMetadata:
         assert written["granule_dir"] == stages["write"]["dest"]
         # Provenance: the discovered granules reach the metadata.
         assert written["inputs"] == GRANULES
+        # The rendered preview is referenced from the metadata.
+        assert written["browse_image"].name.endswith(".jpg")
 
     def test_no_metadata_when_no_granules_were_found(
         self, stages, monkeypatch, tmp_path
