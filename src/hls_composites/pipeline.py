@@ -112,14 +112,14 @@ def create_composite(
         else:
             work_dir = destination.directory
 
-        with requester_pays_env(), assumed_role_env(role_arn) as assumed:
+        with requester_pays_env(), assumed_role_env(role_arn) as session:
             on_progress(
-                f"Reading via assumed role {assumed}"
-                if assumed
+                f"Reading via assumed role {role_arn}"
+                if role_arn
                 else "Reading with ambient credentials"
             )
             granules = scan_bucket_for_granules(
-                boto3.client("s3"), input_bucket, tile_id, date_range
+                session.client("s3"), input_bucket, tile_id, date_range
             )
 
             granule_id = composite_id(tile_id, date_range)

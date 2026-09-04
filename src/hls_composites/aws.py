@@ -69,12 +69,17 @@ def requester_pays_env() -> Iterator[None]:
 @contextmanager
 def assumed_role_env(
     role_arn: str | None, session_name: str = DEFAULT_SESSION_NAME
-) -> Iterator[str | None]:
-    """Run the body with `role_arn`'s credentials in the environment.
+) -> Iterator[boto3.Session]:
+    """Run the body as `role_arn`, yielding a session that holds its credentials.
 
-    A falsy `role_arn` is a no-op, leaving the ambient credential chain in
-    place -- the local path, where the role cannot be assumed. The container
-    always sets the variable, so an empty string has to mean "no role" too.
+    A falsy `role_arn` is a no-op yielding an ordinary session, leaving the
+    ambient credential chain in place -- the local path, where the role cannot
+    be assumed. The container always sets the variable, so an empty string has
+    to mean "no role" too.
+
+    Credentials travel two ways because their consumers read from different
+    places: boto3 callers must build clients from the yielded session, and
+    GDAL reads them from the environment.
 
     Parameters
     ----------
@@ -85,9 +90,9 @@ def assumed_role_env(
 
     Yields
     ------
-    str or None
-        The ARN that was assumed, or None when running with ambient
-        credentials.
+    boto3.Session
+        A session carrying the assumed credentials, or an ambient one when no
+        role was given.
 
     Raises
     ------
@@ -95,12 +100,16 @@ def assumed_role_env(
         If the role could not be assumed.
     """
     if not role_arn:
-        yield None
+        yield boto3.Session()
         return
 
     try:
-        response = boto3.client("sts").assume_role(
-            RoleArn=role_arn, RoleSessionName=session_name
+        # A dedicated session, so this call does not populate the module
+        # default with ambient credentials for everything that follows.
+        response = (
+            boto3.Session()
+            .client("sts")
+            .assume_role(RoleArn=role_arn, RoleSessionName=session_name)
         )
     except Exception as error:
         raise RuntimeError(f"could not assume {role_arn}: {error}") from error
@@ -115,7 +124,11 @@ def assumed_role_env(
 
     os.environ.update(new)
     try:
-        yield role_arn
+        yield boto3.Session(
+            aws_access_key_id=credentials["AccessKeyId"],
+            aws_secret_access_key=credentials["SecretAccessKey"],
+            aws_session_token=credentials["SessionToken"],
+        )
     finally:
         for name, value in previous.items():
             if value is None:
