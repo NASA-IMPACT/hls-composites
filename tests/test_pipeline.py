@@ -1,3 +1,4 @@
+import os
 from datetime import date
 from pathlib import Path
 
@@ -252,3 +253,13 @@ class TestMetadata:
         run(S3Destination("out-bucket"))
 
         assert order == ["metadata", "upload"]
+
+
+class TestRequesterPays:
+    def test_gdal_is_told_to_bill_the_requester(self, stages, monkeypatch, tmp_path):
+        """Band reads happen on dask worker threads, which read the environment."""
+        monkeypatch.delenv("AWS_REQUEST_PAYER", raising=False)
+
+        run(LocalDestination(tmp_path))
+
+        assert os.environ["AWS_REQUEST_PAYER"] == "requester"

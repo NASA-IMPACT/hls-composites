@@ -6,6 +6,7 @@ than printed, and the caller chooses where the product lands by passing a
 `Destination`.
 """
 
+import os
 import tempfile
 from collections.abc import Callable
 from contextlib import ExitStack
@@ -17,7 +18,7 @@ import boto3
 from hls_composites.aws import assumed_role_env, upload_directory
 from hls_composites.browse import write_browse_image
 from hls_composites.composite import CompositeOutput, build_composite
-from hls_composites.discovery import scan_bucket_for_granules
+from hls_composites.discovery import REQUEST_PAYER, scan_bucket_for_granules
 from hls_composites.io import composite_id, write_rasters
 from hls_composites.metadata.writer import write_metadata
 from hls_composites.models import DateRange
@@ -107,6 +108,11 @@ def create_composite(
             work_dir = Path(stack.enter_context(tempfile.TemporaryDirectory()))
         else:
             work_dir = destination.directory
+
+        # GDAL reads on dask worker threads pick this up from the environment,
+        # the same way they pick up credentials. LP DAAC's buckets are
+        # requester-pays; S3 ignores the header on buckets that are not.
+        os.environ["AWS_REQUEST_PAYER"] = REQUEST_PAYER
 
         # Only the reads run as the assumed role; the upload below uses this
         # process's own credentials.
