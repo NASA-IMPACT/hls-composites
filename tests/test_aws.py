@@ -6,7 +6,14 @@ import pytest
 from moto import mock_aws
 from moto.core import DEFAULT_ACCOUNT_ID
 
-from hls_composites.aws import CREDENTIAL_ENV_VARS, assumed_role_env, upload_directory
+from hls_composites.aws import (
+    CREDENTIAL_ENV_VARS,
+    REQUESTER,
+    REQUESTER_PAYS_ENV_VAR,
+    assumed_role_env,
+    requester_pays_env,
+    upload_directory,
+)
 
 ROLE_ARN = f"arn:aws:iam::{DEFAULT_ACCOUNT_ID}:role/reader"
 
@@ -102,6 +109,40 @@ class TestCredentialScoping:
             raise ZeroDivisionError
 
         assert "AWS_ACCESS_KEY_ID" not in os.environ
+
+
+class TestRequesterPaysEnv:
+    """LP DAAC's buckets are requester-pays; S3 ignores this elsewhere."""
+
+    def test_sets_the_variable_gdal_reads(self, monkeypatch):
+        monkeypatch.delenv(REQUESTER_PAYS_ENV_VAR, raising=False)
+
+        with requester_pays_env():
+            assert os.environ[REQUESTER_PAYS_ENV_VAR] == REQUESTER
+
+    def test_clears_it_afterwards_when_it_was_unset(self, monkeypatch):
+        monkeypatch.delenv(REQUESTER_PAYS_ENV_VAR, raising=False)
+
+        with requester_pays_env():
+            pass
+
+        assert REQUESTER_PAYS_ENV_VAR not in os.environ
+
+    def test_restores_a_previous_value(self, monkeypatch):
+        monkeypatch.setenv(REQUESTER_PAYS_ENV_VAR, "outer")
+
+        with requester_pays_env():
+            assert os.environ[REQUESTER_PAYS_ENV_VAR] == REQUESTER
+
+        assert os.environ[REQUESTER_PAYS_ENV_VAR] == "outer"
+
+    def test_restores_when_the_body_raises(self, monkeypatch):
+        monkeypatch.delenv(REQUESTER_PAYS_ENV_VAR, raising=False)
+
+        with pytest.raises(ZeroDivisionError), requester_pays_env():
+            raise ZeroDivisionError
+
+        assert REQUESTER_PAYS_ENV_VAR not in os.environ
 
 
 class TestAssumeRole:

@@ -32,6 +32,39 @@ CREDENTIAL_ENV_VARS = (
 
 DEFAULT_SESSION_NAME = "hls-composites"
 
+REQUESTER_PAYS_ENV_VAR = "AWS_REQUEST_PAYER"
+"""The variable GDAL reads to bill object reads to the requester."""
+
+REQUESTER = "requester"
+
+
+@contextmanager
+def requester_pays_env() -> Iterator[None]:
+    """Run the body billing input reads to this account.
+
+    LP DAAC's buckets are requester-pays, and S3 ignores the header on buckets
+    that are not, so this is unconditional. It is set in the environment rather
+    than on a session because the band reads happen on dask worker threads
+    inside GDAL, which sees neither a boto3 session nor a `rasterio.Env` opened
+    on the main thread.
+
+    Scoped rather than set once so it covers the input reads only, matching
+    `assumed_role_env`: what the caller does afterwards is its own business.
+
+    Yields
+    ------
+    None
+    """
+    previous = os.environ.get(REQUESTER_PAYS_ENV_VAR)
+    os.environ[REQUESTER_PAYS_ENV_VAR] = REQUESTER
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(REQUESTER_PAYS_ENV_VAR, None)
+        else:
+            os.environ[REQUESTER_PAYS_ENV_VAR] = previous
+
 
 @contextmanager
 def assumed_role_env(

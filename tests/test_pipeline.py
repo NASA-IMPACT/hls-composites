@@ -256,10 +256,29 @@ class TestMetadata:
 
 
 class TestRequesterPays:
-    def test_gdal_is_told_to_bill_the_requester(self, stages, monkeypatch, tmp_path):
-        """Band reads happen on dask worker threads, which read the environment."""
+    def test_reads_are_billed_to_the_requester(self, stages, monkeypatch, tmp_path):
+        """Set during discovery, which is when GDAL and boto3 need it."""
+        monkeypatch.delenv("AWS_REQUEST_PAYER", raising=False)
+        seen: list[str | None] = []
+
+        original = pipeline.scan_bucket_for_granules
+
+        def recording_scan(*args, **kwargs):
+            seen.append(os.environ.get("AWS_REQUEST_PAYER"))
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(pipeline, "scan_bucket_for_granules", recording_scan)
+
+        run(LocalDestination(tmp_path))
+
+        assert seen == ["requester"]
+
+    def test_the_variable_does_not_leak_past_the_reads(
+        self, stages, monkeypatch, tmp_path
+    ):
+        """The upload runs unbilled, as its own identity."""
         monkeypatch.delenv("AWS_REQUEST_PAYER", raising=False)
 
         run(LocalDestination(tmp_path))
 
-        assert os.environ["AWS_REQUEST_PAYER"] == "requester"
+        assert "AWS_REQUEST_PAYER" not in os.environ
