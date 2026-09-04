@@ -132,7 +132,8 @@ class TestS3Destination:
 
 
 class TestNoGranules:
-    def test_writes_a_marker_and_reports_zero(self, stages, tmp_path):
+    def test_reports_zero_and_writes_nothing(self, stages, tmp_path):
+        """No inputs means no product; the CLI turns this into exit_codes.NO_INPUTS."""
         stages["granules"] = []
 
         result = create_composite(
@@ -144,8 +145,24 @@ class TestNoGranules:
 
         assert result.granule_count == 0
         assert not result.found_granules
-        marker = tmp_path / result.granule_id / pipeline.NO_GRANULES_MARKER
-        assert marker.exists()
+        assert list(tmp_path.iterdir()) == []
+
+    def test_nothing_is_uploaded(self, stages, monkeypatch):
+        stages["granules"] = []
+
+        def fail(*args, **kwargs):
+            raise AssertionError("must not upload without a composite")
+
+        monkeypatch.setattr(pipeline, "upload_directory", fail)
+
+        result = create_composite(
+            tile_id="14TPN",
+            date_range=JULY,
+            input_bucket="in-bucket",
+            destination=S3Destination("out-bucket"),
+        )
+
+        assert result.uploaded_keys == []
 
     def test_does_not_composite(self, stages, tmp_path):
         stages["granules"] = []

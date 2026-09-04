@@ -28,9 +28,6 @@ from hls_composites.models import DateRange
 
 ProgressCallback = Callable[[str], None]
 
-NO_GRANULES_MARKER = "No granules found"
-"""Written into an otherwise empty granule directory when nothing was found."""
-
 
 @dataclass(frozen=True)
 class LocalDestination:
@@ -123,31 +120,29 @@ def create_composite(
             )
 
             granule_id = composite_id(tile_id, date_range)
-            # FIXME: exit with some specific exit code we can parse in job
-            #        monitor (could be useful for leading edge)
             if not granules:
-                dest = work_dir / granule_id
-                dest.mkdir(parents=True, exist_ok=True)
-                (dest / NO_GRANULES_MARKER).touch()
+                # Nothing to composite, so nothing to write or upload. The
+                # caller signals this with exit_codes.NO_INPUTS, which the job
+                # monitor records as FAILURE_NO_INPUTS.
                 on_progress(f"No granules found for {tile_id} in {date_range}")
-            else:
-                on_progress(
-                    f"Compositing {output} from {len(granules)} granules "
-                    f"for {tile_id} in {date_range}"
-                )
-                composite = build_composite(granules, output=output)
-                computed = composite.compute()
-                dest = Path(write_rasters(computed, work_dir, tile_id, date_range))
-                browse = write_browse_image(computed, dest / f"{dest.name}.jpg")
+                return CompositeResult(granule_id, 0)
+
+            on_progress(
+                f"Compositing {output} from {len(granules)} granules "
+                f"for {tile_id} in {date_range}"
+            )
+            composite = build_composite(granules, output=output)
+            computed = composite.compute()
+            dest = Path(write_rasters(computed, work_dir, tile_id, date_range))
+            browse = write_browse_image(computed, dest / f"{dest.name}.jpg")
 
         # CNM, the message that notifies ingest a granule is ready, is a
         # separate follow-up. These documents describe the granule; CNM points
         # at them.
-        if granules:
-            documents = write_metadata(
-                tile_id, date_range, dest, inputs=granules, browse_image=browse
-            )
-            on_progress(f"Wrote {len(documents)} metadata documents")
+        documents = write_metadata(
+            tile_id, date_range, dest, inputs=granules, browse_image=browse
+        )
+        on_progress(f"Wrote {len(documents)} metadata documents")
 
         if isinstance(destination, S3Destination):
             keys = upload_directory(

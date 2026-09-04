@@ -4,6 +4,7 @@ import pytest
 from aws_cdk import assertions
 
 from hls_constructs import JOB_TYPE, partition_keys
+from hls_constructs.job_monitoring import NO_INPUTS_STATE
 from tests.cdk.test_stack import build_settings, synth
 
 
@@ -295,3 +296,24 @@ def test_prod_processing_bucket_is_retained_and_not_auto_deleted():
 
     assert bucket["DeletionPolicy"] == "RetainExceptOnCreate"
     assert not resources_of(template, "Custom::S3AutoDeleteObjects")
+
+
+def test_no_input_exit_code_is_mapped_for_the_monitor(template):
+    """The container exits 5; the monitor must know what that means."""
+    from hls_composites.exit_codes import NO_INPUTS
+
+    (monitor,) = [
+        function["Properties"]
+        for function in resources_of(template, "AWS::Lambda::Function")
+        if "job_monitor_handler" in function["Properties"].get("Handler", "")
+    ]
+    configs = join_literals(
+        monitor["Environment"]["Variables"]["PROCESSING_JOB_TYPE_CONFIGS"]
+    )
+
+    assert f'"{NO_INPUTS}"' in configs or f"'{NO_INPUTS}'" in configs
+    assert NO_INPUTS_STATE in configs
+    # Neither retried nor dead-lettered: common enough that DLQ-ing it would
+    # bury real failures, and the Athena tables already record it.
+    assert '"dlq": false' in configs
+    assert '"retryable": false' in configs
