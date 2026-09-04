@@ -7,6 +7,7 @@ import pytest
 from click.testing import CliRunner
 
 from hls_composites import cli
+from hls_composites.exit_codes import NO_INPUTS
 from hls_composites.models import DateRange
 from hls_composites.pipeline import CompositeResult, LocalDestination, S3Destination
 
@@ -113,3 +114,20 @@ class TestValidation:
         assert result.exit_code != 0
         assert "--year-month" in result.output
         assert "expected YYYY-MM" in result.output
+
+
+class TestExitCodes:
+    def test_no_inputs_exits_with_the_agreed_code(self, monkeypatch, tmp_path):
+        """The job monitor maps this code to FAILURE_NO_INPUTS."""
+        monkeypatch.setattr(
+            cli, "create_composite", lambda **kwargs: CompositeResult("GRAN", 0, [])
+        )
+
+        result = invoke("--output-dir", str(tmp_path))
+
+        assert result.exit_code == NO_INPUTS
+
+    def test_a_composite_exits_zero(self, called, tmp_path):
+        result = invoke("--output-dir", str(tmp_path))
+
+        assert result.exit_code == 0

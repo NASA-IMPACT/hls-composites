@@ -5,6 +5,7 @@ from pathlib import Path
 import click
 
 from hls_composites.composite import CompositeOutput
+from hls_composites.exit_codes import NO_INPUTS
 from hls_composites.models import DateRange
 from hls_composites.pipeline import (
     Destination,
@@ -102,7 +103,7 @@ def main(
     )
     output: CompositeOutput = "bands" if bands else "indexes"
 
-    create_composite(
+    result = create_composite(
         tile_id=tile_id,
         date_range=date_range,
         input_bucket=bucket,
@@ -111,3 +112,8 @@ def main(
         role_arn=role_arn,
         on_progress=click.echo,
     )
+
+    if not result.found_granules:
+        # A distinct code so the job monitor can record FAILURE_NO_INPUTS
+        # rather than treating an empty period as a generic failure.
+        raise SystemExit(NO_INPUTS)
