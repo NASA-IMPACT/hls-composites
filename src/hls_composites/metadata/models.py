@@ -9,7 +9,6 @@ it, and reading the files describes what was actually produced.
 """
 
 import datetime as dt
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -72,9 +71,6 @@ CMR_STAC_BASE = "https://cmr.earthdata.nasa.gov/stac/LPCLOUD/collections"
 CMR_STAC_COLLECTIONS = {"L30": "HLSL30_2.0", "S30": "HLSS30_2.0"}
 """CMR-STAC collection ID per HLS product, as spelled in the live catalog."""
 
-# Zone 1-60, latitude band excluding I and O, two-letter grid square.
-_MGRS_TILE = re.compile(r"^([0-9]{1,2})([C-HJ-NP-X])([A-Z]{2})$")
-
 # Densifying the edges before reprojecting keeps the lat/lon bounds tight:
 # a UTM rectangle's edges curve on the ellipsoid.
 _DENSIFY_POINTS = 21
@@ -96,29 +92,7 @@ class InputGranule:
     stac_href: str
 
 
-def mgrs_fields(tile_id: str) -> tuple[int, str, str]:
-    """Split an MGRS tile ID into its UTM zone, latitude band, and grid square.
-
-    Parameters
-    ----------
-    tile_id : str
-        Tile ID without the leading "T", e.g. ``14TPN``.
-
-    Returns
-    -------
-    tuple
-        ``(utm_zone, latitude_band, grid_square)``, e.g. ``(14, "T", "PN")``.
-
-    Raises
-    ------
-    ValueError
-        If `tile_id` is not a well-formed MGRS tile.
-    """
-    match = _MGRS_TILE.match(tile_id)
-    if match is None:
-        raise ValueError(f"not an MGRS tile: {tile_id!r}")
-    zone, band, square = match.groups()
-    return int(zone), band, square
+"""CMR-STAC collection ID per HLS product, as spelled in the live catalog."""
 
 
 def _provenance(granules: list[Granule]) -> list[InputGranule]:
