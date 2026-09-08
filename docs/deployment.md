@@ -17,7 +17,7 @@ The AWS Batch infrastructure that runs the `hls-composites` container lives in `
 | Batch service role  | `AWSBatchServiceRole` + `AmazonSSMReadOnlyAccess`                           |
 | Execution role      | Pulls the image from ECR and ships logs                                     |
 | Job role            | `hls-composites-processing-role-{stage}` -- the container's own credentials |
-| Log group           | `PROCESSING_LOG_GROUP_NAME`, `PROCESSING_LOG_RETENTION` retention      |
+| Log group           | `PROCESSING_LOG_GROUP_NAME`, `PROCESSING_LOG_RETENTION` retention           |
 
 You can submit jobs manually using AWS CLI for backfills or testing:
 
@@ -83,5 +83,12 @@ The job definition sets:
 | `OUTPUT_BUCKET`          | Destination bucket. **Not yet read by the CLI**, which still writes to a local `--output-dir`. |
 | `LPDAAC_READER_ROLE_ARN` | Role to assume for LP DAAC reads. **Not yet read by the CLI.**                                 |
 | `PYTHONUNBUFFERED`       | Keeps logs flowing to CloudWatch.                                                              |
+
+Each composite directory also carries `{granule_id}.cmr.xml` (ECHO-10 granule metadata for CMR) and
+`{granule_id}_stac.json` (a STAC item). Both are written from one model, so they cannot disagree. The collection-level
+values they carry -- short name, dataset ID, DOI, product URI, and the compositing algorithm description -- are
+constants in `src/hls_composites/metadata/models.py`. Those the DAAC has not assigned yet are the literal string
+`PLACEHOLDER`; the STAC item omits `sci:doi` entirely until a real DOI exists, since the scientific extension validates
+it against a DOI pattern.
 
 The IAM permissions for the last two are in place so the corresponding application changes have somewhere to land.
