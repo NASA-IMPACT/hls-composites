@@ -13,6 +13,7 @@ dependencies = [
     "dask>=2025.10.0",
     "numpy>=2.1.0",
     "pillow>=11",
+    "hls-manifest",
     "pystac>=1.12",
     "rasterio>=1.4.3",
     "rioxarray>=0.17.0",
@@ -46,6 +47,7 @@ deploy = [
 ]
 
 [tool.uv.sources]
+hls-manifest = { git = "https://github.com/NASA-IMPACT/hls-manifest.git", tag = "v2.3" }
 # Unreleased: no tags or releases exist yet, so this tracks the PR branch and
 # uv.lock pins the exact commit. Bump with:
 #   uv lock --upgrade-package batch-event-job-monitor
@@ -70,6 +72,10 @@ files = ["src", "cdk"]
 python_version = "3.12"
 plugins = ["pydantic.mypy"]
 warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["hls_manifest.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 norecursedirs = ["cdk.out"]

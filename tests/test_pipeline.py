@@ -52,6 +52,7 @@ def stages(monkeypatch, tmp_path):
     # Tests that care about it override this.
     monkeypatch.setattr(pipeline, "write_metadata", lambda *a, **k: [])
     monkeypatch.setattr(pipeline, "write_browse_image", lambda computed, path: path)
+    monkeypatch.setattr(pipeline, "write_manifest", lambda *a, **k: None)
     # No boto3 stub: discovery and upload are faked, so the clients the
     # pipeline builds are never used to make a request.
     return captured
@@ -344,3 +345,45 @@ class TestCredentialFreshness:
         run(LocalDestination(tmp_path), role_arn="arn:aws:iam::1:role/reader")
 
         assert seen["key"] == "ASSUMED"
+
+
+class TestManifest:
+    def test_written_for_s3_with_the_destination_uri(self, stages, monkeypatch):
+        seen: dict = {}
+
+        def fake_manifest(granule_dir, bucket_uri, granule_id):
+            seen.update(bucket_uri=bucket_uri, granule_id=granule_id)
+
+        monkeypatch.setattr(pipeline, "write_manifest", fake_manifest)
+        monkeypatch.setattr(pipeline, "upload_directory", lambda *a, **k: [])
+
+        run(S3Destination("out-bucket", "M30/data"))
+
+        assert seen["bucket_uri"] == f"s3://out-bucket/M30/data/{seen['granule_id']}"
+
+    def test_not_written_for_a_local_destination(self, stages, monkeypatch, tmp_path):
+        """Its URIs name a bucket a local run never uploads to."""
+
+        def fail(*args, **kwargs):
+            raise AssertionError("no manifest without a destination bucket")
+
+        monkeypatch.setattr(pipeline, "write_manifest", fail)
+
+        run(LocalDestination(tmp_path))
+
+    def test_written_before_upload(self, stages, monkeypatch):
+        """It checksums the other files, so they must all already exist."""
+        order: list[str] = []
+
+        monkeypatch.setattr(
+            pipeline, "write_manifest", lambda *a, **k: order.append("manifest")
+        )
+        monkeypatch.setattr(
+            pipeline,
+            "upload_directory",
+            lambda *a, **k: order.append("upload") or [],
+        )
+
+        run(S3Destination("out-bucket"))
+
+        assert order == ["manifest", "upload"]

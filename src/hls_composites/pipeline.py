@@ -23,6 +23,7 @@ from hls_composites.browse import write_browse_image
 from hls_composites.composite import CompositeOutput, build_composite
 from hls_composites.discovery import scan_bucket_for_granules
 from hls_composites.io import composite_id, write_rasters
+from hls_composites.metadata.manifest import write_manifest
 from hls_composites.metadata.writer import write_metadata
 from hls_composites.models import DateRange
 
@@ -136,9 +137,6 @@ def create_composite(
             dest = Path(write_rasters(computed, work_dir, tile_id, date_range))
             browse = write_browse_image(computed, dest / f"{dest.name}.jpg")
 
-        # CNM, the message that notifies ingest a granule is ready, is a
-        # separate follow-up. These documents describe the granule; CNM points
-        # at them.
         documents = write_metadata(
             tile_id,
             date_range,
@@ -149,11 +147,14 @@ def create_composite(
         on_progress(f"Wrote {len(documents)} metadata documents")
 
         if isinstance(destination, S3Destination):
+            # Last, so it can checksum everything else. Only for S3: its URIs
+            # name where the files land, which a local run never reaches.
+            prefix = object_prefix(destination.prefix, dest.name)
+            write_manifest(dest, f"s3://{destination.bucket}/{prefix}", dest.name)
+            on_progress("Wrote the CNM submission message")
+
             keys = upload_directory(
-                boto3.client("s3"),
-                dest,
-                destination.bucket,
-                object_prefix(destination.prefix, dest.name),
+                boto3.client("s3"), dest, destination.bucket, prefix
             )
             on_progress(f"Uploaded {len(keys)} files to {destination.bucket}")
             return CompositeResult(granule_id, len(granules), keys)
