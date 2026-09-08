@@ -19,8 +19,8 @@ from hls_composites.metadata.models import (
     DOI,
     PLACEHOLDER,
     GranuleMetadata,
-    mgrs_fields,
 )
+from hls_composites.models import mgrs_fields
 
 PROJECTION_SCHEMA_URI = (
     "https://stac-extensions.github.io/projection/v1.2.0/schema.json"

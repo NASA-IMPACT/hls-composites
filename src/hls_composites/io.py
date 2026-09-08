@@ -11,14 +11,16 @@ arguments.
 """
 
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict
 
 import numpy as np
 import rasterio
 import rioxarray  # noqa: F401  (registers the .rio accessor)
 import xarray as xr
+from rasterio.crs import CRS
 
 from hls_composites.composite import BLOCK_SIZE, BROWSE_BANDS
+from hls_composites.crs import corrected_crs
 from hls_composites.models import DateRange
 
 
@@ -64,16 +66,17 @@ def _write_geotiff(
     array: xr.DataArray,
     block_size: int,
     creation_options: GeoTiffCreationOptions,
+    crs: CRS,
 ) -> None:
     values = np.asarray(array.values)
-    profile: dict[str, object] = {
+    profile: dict[str, Any] = {
         "driver": "GTiff",
         "height": values.shape[0],
         "width": values.shape[1],
         "count": 1,
         "dtype": values.dtype,
-        "crs": array.rio.crs,  # type: ignore[attr-defined]
-        "transform": array.rio.transform(),  # type: ignore[attr-defined]
+        "crs": crs,
+        "transform": array.rio.transform(),
         "tiled": True,
         "blockxsize": block_size,
         "blockysize": block_size,
@@ -132,10 +135,23 @@ def write_rasters(
     granule_id = composite_id(tile, date_range)
     dest = Path(out_dir) / granule_id
     dest.mkdir(parents=True, exist_ok=True)
+
+    sample = next(iter(computed.data_vars.values()))
+    crs = corrected_crs(
+        sample.rio.crs,
+        sample.rio.transform(),
+        (sample.shape[0], sample.shape[1]),
+        tile,
+    )
+
     for name, array in computed.data_vars.items():
         if name in BROWSE_BANDS:
             continue
         _write_geotiff(
-            dest / f"{granule_id}.{name}.tif", array, block_size, creation_options
+            dest / f"{granule_id}.{name}.tif",
+            array,
+            block_size,
+            creation_options,
+            crs,
         )
     return dest
