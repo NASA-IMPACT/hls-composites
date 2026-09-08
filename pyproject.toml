@@ -68,7 +68,7 @@ known-first-party = ["hls_constructs", "settings", "stack"]
 combine-as-imports = true
 
 [tool.mypy]
-files = ["src", "cdk"]
+files = ["src", "cdk", "docker"]
 python_version = "3.12"
 plugins = ["pydantic.mypy"]
 warn_unused_ignores = true

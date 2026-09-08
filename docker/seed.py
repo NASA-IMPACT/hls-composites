@@ -26,7 +26,6 @@ from botocore.exceptions import ClientError, EndpointConnectionError
 from earthaccess.exceptions import LoginStrategyUnavailable
 
 from hls_composites.bands import DEFAULT_BANDS
-from hls_composites.cli import _month_range
 from hls_composites.composite import asset_url
 from hls_composites.discovery import COLLECTION_DIR, parse_granule_common_prefix
 from hls_composites.models import DateRange, Granule, Satellite
@@ -171,7 +170,7 @@ def main() -> None:
     )
     _ensure_bucket(dest, local_bucket)
 
-    date_range = _month_range(year_month)
+    date_range = DateRange.for_month(year_month)
     seeded = 0
     granule_count = 0
 
