@@ -21,6 +21,20 @@
 # Override any knob inline (TILE=... YEARMONTH=...) or via a local .env file.
 # Outputs land in ./out; the MinIO console is at http://localhost:9001.
 
+# seed and composite are the same image, built once and tagged here so both
+# services share it rather than each triggering its own build.
+x-app: &app
+  build:
+    context: .
+    target: dev
+  image: hls-composites:dev
+
+x-mounts:
+  # Live source, picked up without a rebuild (project installed editable).
+  src: &mount-src ./src:/app/src:ro
+  # Holds the MinIO client config AWS_CONFIG_FILE points at.
+  docker: &mount-docker ./docker:/app/docker:ro
+
 services:
   minio:
     image: minio/minio:latest
@@ -36,9 +50,7 @@ services:
 
   # One-shot: copy real granules from LP DAAC into MinIO, over HTTPS.
   seed:
-    build:
-      context: .
-      target: dev
+    <<: *app
     profiles: ["tools"]
     depends_on:
       - minio
@@ -47,8 +59,7 @@ services:
       # Earthdata Login credentials for the LP DAAC reads, read-only. Mounted
       # at earthaccess's default lookup path, so no env var is needed.
       - ${HOME}/.netrc:/root/.netrc:ro
-      # Live source, so edits are picked up without a rebuild (project is
-      # installed editable). tests/docker/scripts for the dev inner loop.
+      # Live source, so edits are picked up without a rebuild
       - ./src:/app/src:ro
       - ./tests:/app/tests
       - ./docker:/app/docker:ro
@@ -66,9 +77,7 @@ services:
 
   # One-shot: run the CLI against MinIO to build the composite.
   composite:
-    build:
-      context: .
-      target: prod
+    <<: *app
     profiles: ["tools"]
     depends_on:
       - minio
@@ -85,8 +94,8 @@ services:
       - "--${MODE:-indexes}"
     volumes:
       - ./out:/out
-      # Live source, picked up without a rebuild (project installed editable).
-      - ./src:/app/src:ro
+      - *mount-src
+      - *mount-docker
     environment:
       # boto3 -> MinIO (discovery). Path-style addressing via the mounted config.
       AWS_ENDPOINT_URL_S3: http://minio:9000
