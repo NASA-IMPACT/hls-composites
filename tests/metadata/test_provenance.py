@@ -6,10 +6,11 @@ from xml.etree import ElementTree
 import pystac
 import pytest
 
+from hls_composites.crs import mgrs_fields
 from hls_composites.metadata.echo10 import to_echo10
 from hls_composites.metadata.models import CMR_STAC_BASE, granule_metadata
 from hls_composites.metadata.stac import to_stac_item
-from hls_composites.models import Granule, mgrs_fields
+from hls_composites.models import Granule
 from tests.metadata.conftest import FEBRUARY
 
 INPUTS = [

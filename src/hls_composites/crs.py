@@ -1,4 +1,4 @@
-"""Reconcile a raster's declared CRS with the hemisphere its tile ID implies.
+"""Grid reference vocabulary, and reconciling a CRS with the tile it describes.
 
 HLS labels some southern-hemisphere granules with a northern UTM code while
 writing coordinates that carry the southern false northing. The pixels are
@@ -10,11 +10,49 @@ so switching between them is a relabel: the coordinates already mean what the
 southern definition says they mean, and no pixel moves.
 """
 
+import re
+
 from affine import Affine
 from rasterio.crs import CRS
 from rasterio.transform import array_bounds
 
-from hls_composites.models import is_southern
+# Zone 1-60, latitude band excluding I and O, two-letter grid square.
+_MGRS_TILE = re.compile(r"^([0-9]{1,2})([C-HJ-NP-X])([A-Z]{2})$")
+
+SOUTHERN_BANDS = frozenset("CDEFGHJKLM")
+"""MGRS latitude bands south of the equator. N through X are northern."""
+
+
+def mgrs_fields(tile_id: str) -> tuple[int, str, str]:
+    """Split an MGRS tile ID into its UTM zone, latitude band, and grid square.
+
+    Parameters
+    ----------
+    tile_id : str
+        Tile ID without the leading "T", e.g. ``14TPN``.
+
+    Returns
+    -------
+    tuple
+        ``(utm_zone, latitude_band, grid_square)``, e.g. ``(14, "T", "PN")``.
+
+    Raises
+    ------
+    ValueError
+        If `tile_id` is not a well-formed MGRS tile.
+    """
+    match = _MGRS_TILE.match(tile_id)
+    if match is None:
+        raise ValueError(f"not an MGRS tile: {tile_id!r}")
+    zone, band, square = match.groups()
+    return int(zone), band, square
+
+
+def is_southern(tile_id: str) -> bool:
+    """Whether an MGRS tile lies south of the equator."""
+    _, band, _ = mgrs_fields(tile_id)
+    return band in SOUTHERN_BANDS
+
 
 SOUTHERN_FALSE_NORTHING = 10_000_000.0
 """Metres the southern UTM definition adds, so its northings stay positive."""

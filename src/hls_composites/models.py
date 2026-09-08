@@ -1,49 +1,11 @@
 """Shared data types for granule discovery and composite creation."""
 
 import calendar
-import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Literal
 
 Satellite = Literal["L30", "S30"]
-
-# Zone 1-60, latitude band excluding I and O, two-letter grid square.
-_MGRS_TILE = re.compile(r"^([0-9]{1,2})([C-HJ-NP-X])([A-Z]{2})$")
-
-SOUTHERN_BANDS = frozenset("CDEFGHJKLM")
-"""MGRS latitude bands south of the equator. N through X are northern."""
-
-
-def mgrs_fields(tile_id: str) -> tuple[int, str, str]:
-    """Split an MGRS tile ID into its UTM zone, latitude band, and grid square.
-
-    Parameters
-    ----------
-    tile_id : str
-        Tile ID without the leading "T", e.g. ``14TPN``.
-
-    Returns
-    -------
-    tuple
-        ``(utm_zone, latitude_band, grid_square)``, e.g. ``(14, "T", "PN")``.
-
-    Raises
-    ------
-    ValueError
-        If `tile_id` is not a well-formed MGRS tile.
-    """
-    match = _MGRS_TILE.match(tile_id)
-    if match is None:
-        raise ValueError(f"not an MGRS tile: {tile_id!r}")
-    zone, band, square = match.groups()
-    return int(zone), band, square
-
-
-def is_southern(tile_id: str) -> bool:
-    """Whether an MGRS tile lies south of the equator."""
-    _, band, _ = mgrs_fields(tile_id)
-    return band in SOUTHERN_BANDS
 
 
 @dataclass(frozen=True)
