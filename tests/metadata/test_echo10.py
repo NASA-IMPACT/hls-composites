@@ -16,8 +16,10 @@ PRODUCED_AT = dt.datetime(2026, 9, 3, 12, 0, 0, tzinfo=dt.UTC)
 
 
 @pytest.fixture
-def root(granule_dir):
-    meta = granule_metadata("14TPN", FEBRUARY, granule_dir, produced_at=PRODUCED_AT)
+def root(granule_dir, browse_image):
+    meta = granule_metadata(
+        "14TPN", FEBRUARY, granule_dir, browse_image, produced_at=PRODUCED_AT
+    )
     return ElementTree.fromstring(to_echo10(meta))
 
 
@@ -143,7 +145,7 @@ def test_data_format_is_declared(root):
     assert root.findtext("DataFormat") == "Cloud Optimized GeoTIFF (COG)"
 
 
-def test_document_has_an_xml_declaration(granule_dir):
-    meta = granule_metadata("14TPN", FEBRUARY, granule_dir)
+def test_document_has_an_xml_declaration(granule_dir, browse_image):
+    meta = granule_metadata("14TPN", FEBRUARY, granule_dir, browse_image)
 
     assert to_echo10(meta).startswith("<?xml")

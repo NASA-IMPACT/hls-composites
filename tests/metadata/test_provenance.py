@@ -31,8 +31,8 @@ INPUTS = [
 
 
 @pytest.fixture
-def meta(granule_dir):
-    return granule_metadata("14TPN", FEBRUARY, granule_dir, inputs=INPUTS)
+def meta(granule_dir, browse_image):
+    return granule_metadata("14TPN", FEBRUARY, granule_dir, browse_image, inputs=INPUTS)
 
 
 class TestMgrsFields:
@@ -65,8 +65,10 @@ class TestInputProvenance:
             f"{CMR_STAC_BASE}/HLSL30_2.0/items/HLS.L30.T14TPN.2020040T171219.v2.0"
         )
 
-    def test_no_inputs_is_an_empty_list(self, granule_dir):
-        assert granule_metadata("14TPN", FEBRUARY, granule_dir).inputs == []
+    def test_no_inputs_is_an_empty_list(self, granule_dir, browse_image):
+        meta = granule_metadata("14TPN", FEBRUARY, granule_dir, browse_image)
+
+        assert meta.inputs == []
 
 
 class TestEcho10Provenance:
@@ -80,8 +82,8 @@ class TestEcho10Provenance:
         )
         assert values == [item.granule_id for item in meta.inputs]
 
-    def test_attribute_is_omitted_without_inputs(self, granule_dir):
-        meta = granule_metadata("14TPN", FEBRUARY, granule_dir)
+    def test_attribute_is_omitted_without_inputs(self, granule_dir, browse_image):
+        meta = granule_metadata("14TPN", FEBRUARY, granule_dir, browse_image)
         root = ElementTree.fromstring(to_echo10(meta))
 
         names = [

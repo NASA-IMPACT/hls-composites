@@ -145,7 +145,7 @@ def create_composite(
         # at them.
         if granules:
             documents = write_metadata(
-                tile_id, date_range, dest, inputs=granules, browse_image=browse
+                tile_id, date_range, dest, browse, inputs=granules
             )
             on_progress(f"Wrote {len(documents)} metadata documents")
 

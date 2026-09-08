@@ -108,15 +108,14 @@ def to_stac_item(meta: GranuleMetadata) -> dict[str, Any]:
             ),
         )
 
-    if meta.browse_image is not None:
-        item.add_asset(
-            "thumbnail",
-            pystac.Asset(
-                href=meta.browse_image.name,
-                media_type=pystac.MediaType.JPEG,
-                roles=["thumbnail"],
-                description=BROWSE_DESCRIPTION,
-            ),
-        )
+    item.add_asset(
+        "thumbnail",
+        pystac.Asset(
+            href=meta.browse_image.name,
+            media_type=pystac.MediaType.JPEG,
+            roles=["thumbnail"],
+            description=BROWSE_DESCRIPTION,
+        ),
+    )
 
     return item.to_dict(include_self_link=False)

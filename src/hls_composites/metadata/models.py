@@ -174,8 +174,8 @@ class GranuleMetadata:
         Total size of those files.
     inputs : list of InputGranule
         The granules composited, in discovery order. Empty when unknown.
-    browse_image : pathlib.Path or None
-        The rendered browse image, or None when none was produced.
+    browse_image : pathlib.Path
+        The rendered browse image. Every granule has one.
     """
 
     granule_id: str
@@ -197,8 +197,8 @@ class GranuleMetadata:
     qa_fill_value: int
     assets: list[Path]
     size_bytes: int
+    browse_image: Path
     inputs: list[InputGranule] = field(default_factory=list)
-    browse_image: Path | None = None
 
 
 def _crs_name(crs: rasterio.crs.CRS) -> str:
@@ -222,8 +222,8 @@ def granule_metadata(
     tile_id: str,
     date_range: DateRange,
     granule_dir: Path,
+    browse_image: Path,
     inputs: list[Granule] | None = None,
-    browse_image: Path | None = None,
     produced_at: dt.datetime | None = None,
 ) -> GranuleMetadata:
     """Describe a written composite directory.
@@ -236,11 +236,11 @@ def granule_metadata(
         Period composited over.
     granule_dir : pathlib.Path
         Directory holding the written GeoTIFFs.
+    browse_image : pathlib.Path
+        The rendered browse image, referenced from both documents.
     inputs : list of Granule, optional
         The granules composited. Recorded as provenance; omitted from both
         documents when not given.
-    browse_image : pathlib.Path, optional
-        The rendered browse image. Referenced from both documents when given.
     produced_at : datetime.datetime, optional
         Production time, by default the current UTC time.
 
@@ -291,6 +291,6 @@ def granule_metadata(
         qa_fill_value=VALID_COUNT_FILL,
         assets=assets,
         size_bytes=sum(path.stat().st_size for path in assets),
-        inputs=_provenance(inputs or []),
         browse_image=browse_image,
+        inputs=_provenance(inputs or []),
     )

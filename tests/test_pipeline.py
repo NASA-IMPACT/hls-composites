@@ -193,7 +193,7 @@ class TestMetadata:
         written: dict = {}
 
         def fake_write_metadata(
-            tile_id, date_range, granule_dir, inputs=None, browse_image=None
+            tile_id, date_range, granule_dir, browse_image, inputs=None
         ):
             written.update(
                 tile_id=tile_id,

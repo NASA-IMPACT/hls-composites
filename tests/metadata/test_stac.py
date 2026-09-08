@@ -15,8 +15,10 @@ PRODUCED_AT = dt.datetime(2026, 9, 3, 12, 0, 0, tzinfo=dt.UTC)
 
 
 @pytest.fixture
-def item(granule_dir):
-    meta = granule_metadata("14TPN", FEBRUARY, granule_dir, produced_at=PRODUCED_AT)
+def item(granule_dir, browse_image):
+    meta = granule_metadata(
+        "14TPN", FEBRUARY, granule_dir, browse_image, produced_at=PRODUCED_AT
+    )
     return to_stac_item(meta)
 
 
@@ -54,9 +56,9 @@ def test_no_doi_is_claimed_while_it_is_a_placeholder(item):
     assert SCIENTIFIC_SCHEMA_URI not in item["stac_extensions"]
 
 
-def test_the_doi_appears_once_assigned(granule_dir, monkeypatch):
+def test_the_doi_appears_once_assigned(granule_dir, browse_image, monkeypatch):
     monkeypatch.setattr("hls_composites.metadata.stac.DOI", "10.5067/HLS/HLSM30.001")
-    meta = granule_metadata("14TPN", FEBRUARY, granule_dir)
+    meta = granule_metadata("14TPN", FEBRUARY, granule_dir, browse_image)
 
     assigned = to_stac_item(meta)
 
@@ -66,12 +68,15 @@ def test_the_doi_appears_once_assigned(granule_dir, monkeypatch):
 
 
 def test_every_geotiff_becomes_a_cog_asset(item):
-    assets = item["assets"]
+    data = {
+        key: asset
+        for key, asset in item["assets"].items()
+        if asset["roles"] == ["data"]
+    }
 
-    assert set(assets) == {"NDVI", "ValidCount"}
-    for asset in assets.values():
+    assert set(data) == {"NDVI", "ValidCount"}
+    for asset in data.values():
         assert asset["type"] == pystac.MediaType.COG
-        assert asset["roles"] == ["data"]
 
 
 def test_asset_hrefs_are_the_file_names(item):

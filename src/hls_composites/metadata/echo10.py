@@ -139,14 +139,13 @@ def to_echo10(meta: GranuleMetadata) -> str:
     _sub(granule, "OnlineResources")
     _sub(granule, "DataFormat", DATA_FORMAT)
     browse_urls = _sub(granule, "AssociatedBrowseImageUrls")
-    if meta.browse_image is not None:
-        provider_url = _sub(browse_urls, "ProviderBrowseUrl")
-        _sub(
-            provider_url,
-            "URL",
-            f"{PRODUCT_URI_BASE}/{meta.granule_id}/{meta.browse_image.name}",
-        )
-        _sub(provider_url, "Description", BROWSE_DESCRIPTION)
+    provider_url = _sub(browse_urls, "ProviderBrowseUrl")
+    _sub(
+        provider_url,
+        "URL",
+        f"{PRODUCT_URI_BASE}/{meta.granule_id}/{meta.browse_image.name}",
+    )
+    _sub(provider_url, "Description", BROWSE_DESCRIPTION)
 
     ElementTree.indent(granule, space="  ")
     body = ElementTree.tostring(granule, encoding="unicode")
