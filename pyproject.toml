@@ -12,6 +12,7 @@ dependencies = [
     "click>=8.1.0",
     "dask>=2025.10.0",
     "numpy>=2.1.0",
+    "pillow>=11",
     "pystac>=1.12",
     "rasterio>=1.4.3",
     "rioxarray>=0.17.0",

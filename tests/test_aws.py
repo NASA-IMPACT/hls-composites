@@ -6,7 +6,14 @@ import pytest
 from moto import mock_aws
 from moto.core import DEFAULT_ACCOUNT_ID
 
-from hls_composites.aws import CREDENTIAL_ENV_VARS, assumed_role_env, upload_directory
+from hls_composites.aws import (
+    CREDENTIAL_ENV_VARS,
+    REQUESTER,
+    REQUESTER_PAYS_ENV_VAR,
+    assumed_role_env,
+    requester_pays_env,
+    upload_directory,
+)
 
 ROLE_ARN = f"arn:aws:iam::{DEFAULT_ACCOUNT_ID}:role/reader"
 
@@ -23,10 +30,7 @@ class FakeSts:
     """A minimal STS stub for the environment save/restore tests.
 
     moto seeds and restores the same AWS_* variables this module manages, so
-    tests that need to control the *starting* state cannot run inside it --
-    clearing those variables breaks moto's own teardown. The AWS behaviour
-    (that assume_role works, and that the exported credentials authenticate)
-    is covered by the moto tests in TestAssumeRole below.
+    tests that control the starting state cannot run inside it.
     """
 
     CREDENTIALS: ClassVar[dict[str, str]] = {
@@ -43,10 +47,20 @@ class FakeSts:
         return {"Credentials": self.CREDENTIALS}
 
 
+class FakeSession:
+    """A session whose only job is to hand back the stubbed STS client."""
+
+    def __init__(self, sts: "FakeSts", **kwargs):
+        self._sts = sts
+
+    def client(self, service: str, *args, **kwargs):
+        return self._sts
+
+
 @pytest.fixture
 def fake_sts(monkeypatch):
     sts = FakeSts()
-    monkeypatch.setattr(boto3, "client", lambda service, *a, **k: sts)
+    monkeypatch.setattr(boto3, "Session", lambda **kwargs: FakeSession(sts, **kwargs))
     return sts
 
 
@@ -104,6 +118,40 @@ class TestCredentialScoping:
         assert "AWS_ACCESS_KEY_ID" not in os.environ
 
 
+class TestRequesterPaysEnv:
+    """LP DAAC's buckets are requester-pays; S3 ignores this elsewhere."""
+
+    def test_sets_the_variable_gdal_reads(self, monkeypatch):
+        monkeypatch.delenv(REQUESTER_PAYS_ENV_VAR, raising=False)
+
+        with requester_pays_env():
+            assert os.environ[REQUESTER_PAYS_ENV_VAR] == REQUESTER
+
+    def test_clears_it_afterwards_when_it_was_unset(self, monkeypatch):
+        monkeypatch.delenv(REQUESTER_PAYS_ENV_VAR, raising=False)
+
+        with requester_pays_env():
+            pass
+
+        assert REQUESTER_PAYS_ENV_VAR not in os.environ
+
+    def test_restores_a_previous_value(self, monkeypatch):
+        monkeypatch.setenv(REQUESTER_PAYS_ENV_VAR, "outer")
+
+        with requester_pays_env():
+            assert os.environ[REQUESTER_PAYS_ENV_VAR] == REQUESTER
+
+        assert os.environ[REQUESTER_PAYS_ENV_VAR] == "outer"
+
+    def test_restores_when_the_body_raises(self, monkeypatch):
+        monkeypatch.delenv(REQUESTER_PAYS_ENV_VAR, raising=False)
+
+        with pytest.raises(ZeroDivisionError), requester_pays_env():
+            raise ZeroDivisionError
+
+        assert REQUESTER_PAYS_ENV_VAR not in os.environ
+
+
 class TestAssumeRole:
     """Real STS behaviour, via moto."""
 
@@ -131,21 +179,29 @@ class TestAssumeRole:
             pass
 
 
-class FakeS3:
-    def __init__(self):
-        self.uploads: list[tuple[str, str, str]] = []
+def make_bucket(name: str = "out-bucket"):
+    """A real (moto) S3 client with `name` created."""
+    s3 = boto3.client("s3")
+    s3.create_bucket(
+        Bucket=name,
+        CreateBucketConfiguration={"LocationConstraint": "us-west-2"},
+    )
+    return s3
 
-    def upload_file(self, filename, bucket, key):
-        self.uploads.append((filename, bucket, key))
+
+def keys_in(s3, bucket: str = "out-bucket") -> list[str]:
+    listing = s3.list_objects_v2(Bucket=bucket)
+    return sorted(item["Key"] for item in listing.get("Contents", []))
 
 
+@mock_aws
 class TestUploadDirectory:
     def test_uploads_every_file_under_the_granule_prefix(self, tmp_path):
+        s3 = make_bucket()
         dest = tmp_path / "HLS.M30.T14TPN.2020032.2020060.v2.0"
         dest.mkdir()
         for name in ("a.NDVI.tif", "a.EVI.tif"):
             (dest / name).write_bytes(b"x")
-        s3 = FakeS3()
 
         keys = upload_directory(s3, dest, "out-bucket", dest.name)
 
@@ -153,33 +209,29 @@ class TestUploadDirectory:
             "HLS.M30.T14TPN.2020032.2020060.v2.0/a.EVI.tif",
             "HLS.M30.T14TPN.2020032.2020060.v2.0/a.NDVI.tif",
         ]
-        assert [bucket for _, bucket, _ in s3.uploads] == ["out-bucket"] * 2
+        assert keys_in(s3) == keys
 
     def test_nested_files_keep_their_relative_path(self, tmp_path):
+        s3 = make_bucket()
         dest = tmp_path / "granule"
         (dest / "sub").mkdir(parents=True)
         (dest / "sub" / "b.tif").write_bytes(b"x")
 
-        assert upload_directory(FakeS3(), dest, "out", "granule") == [
+        assert upload_directory(s3, dest, "out-bucket", "granule") == [
             "granule/sub/b.tif"
         ]
+        assert keys_in(s3) == ["granule/sub/b.tif"]
 
     def test_empty_directory_uploads_nothing(self, tmp_path):
+        s3 = make_bucket()
         dest = tmp_path / "granule"
         dest.mkdir()
-        s3 = FakeS3()
 
-        assert upload_directory(s3, dest, "out", "granule") == []
-        assert s3.uploads == []
+        assert upload_directory(s3, dest, "out-bucket", "granule") == []
+        assert keys_in(s3) == []
 
-    @mock_aws
-    def test_objects_actually_land_in_the_bucket(self, tmp_path):
-        """End to end against a real S3 client, not a recording stub."""
-        s3 = boto3.client("s3")
-        s3.create_bucket(
-            Bucket="out-bucket",
-            CreateBucketConfiguration={"LocationConstraint": "us-west-2"},
-        )
+    def test_content_survives_the_round_trip(self, tmp_path):
+        s3 = make_bucket()
         dest = tmp_path / "granule"
         dest.mkdir()
         (dest / "a.NDVI.tif").write_bytes(b"pixels")

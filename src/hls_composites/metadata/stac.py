@@ -15,6 +15,7 @@ import rasterio
 from pystac.extensions.mgrs import MgrsExtension
 
 from hls_composites.metadata.models import (
+    BROWSE_DESCRIPTION,
     DOI,
     PLACEHOLDER,
     GranuleMetadata,
@@ -106,5 +107,15 @@ def to_stac_item(meta: GranuleMetadata) -> dict[str, Any]:
                 roles=["data"],
             ),
         )
+
+    item.add_asset(
+        "thumbnail",
+        pystac.Asset(
+            href=meta.browse_image.name,
+            media_type=pystac.MediaType.JPEG,
+            roles=["thumbnail"],
+            description=BROWSE_DESCRIPTION,
+        ),
+    )
 
     return item.to_dict(include_self_link=False)

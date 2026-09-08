@@ -2,7 +2,7 @@
 
 import re
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from hls_composites.models import DateRange, Granule
 
@@ -48,10 +48,16 @@ def parse_granule_common_prefix(common_prefix: str, bucket: str) -> Granule | No
     )
 
 
+REQUEST_PAYER: Literal["requester"] = "requester"
+"""Bills listing and reads to this account, as LP DAAC's buckets require."""
+
+
 def list_common_prefixes(s3_client: "S3Client", bucket: str, prefix: str) -> list[str]:
     """List S3 CommonPrefixes under a prefix.
 
-    Paginates ``list_objects_v2`` with ``Delimiter="/"``. Retries on
+    Paginates ``list_objects_v2`` with ``Delimiter="/"``, billing the request
+    to this account: LP DAAC's buckets are requester-pays, and S3 ignores the
+    header on buckets that are not. Retries on
     throttling are expected to be handled by `s3_client`'s own retry
     configuration (e.g. boto3's `Config(retries={"mode": "adaptive"})`),
     not by this function.
@@ -73,7 +79,9 @@ def list_common_prefixes(s3_client: "S3Client", bucket: str, prefix: str) -> lis
     """
     prefixes: list[str] = []
     paginator = s3_client.get_paginator("list_objects_v2")
-    for page in paginator.paginate(Bucket=bucket, Prefix=prefix, Delimiter="/"):
+    for page in paginator.paginate(
+        Bucket=bucket, Prefix=prefix, Delimiter="/", RequestPayer=REQUEST_PAYER
+    ):
         for entry in page.get("CommonPrefixes", []):
             prefixes.append(entry["Prefix"])
     return prefixes

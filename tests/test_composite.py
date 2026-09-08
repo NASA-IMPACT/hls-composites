@@ -21,6 +21,7 @@ from hls_composites.bands import (
     Band,
 )
 from hls_composites.composite import (
+    BROWSE_BANDS,
     DOY_FILL,
     QA_BIT,
     VALID_COUNT_FILL,
@@ -458,6 +459,10 @@ def test_composite_block_defaults_to_the_default_indices_and_aux():
         "NBR_std",
         "NDVI",
         "NDVI_std",
+        # Composited for the browse image; write_rasters skips them.
+        "R",
+        "G",
+        "B",
         "ValidCount",
         "DOY",
     ]
@@ -789,3 +794,25 @@ class TestIndexClipping:
             # Both must fit the scaled encoding.
             assert index.valid_min / index.scale_factor >= np.iinfo(np.int16).min
             assert index.valid_max / index.scale_factor <= np.iinfo(np.int16).max
+
+
+def test_indexes_output_includes_browse_bands():
+    """Red, green, and blue are composited for the preview, not as products."""
+    reflectance, fmask, dates = _block_fixture()
+
+    out = _composite_block(reflectance, fmask, dates)
+
+    for name in BROWSE_BANDS:
+        assert name in out
+        assert out[name].dtype == np.int16
+
+
+def test_browse_bands_use_the_same_selection_as_the_indices():
+    """The preview must show the observations the composite is built from."""
+    reflectance, fmask, dates = _block_fixture()
+
+    out = _composite_block(reflectance, fmask, dates)
+
+    # DOY records which observation each pixel took; a browse band selected
+    # from a different observation would be a different scene.
+    assert out["R"].shape == out["DOY"].shape

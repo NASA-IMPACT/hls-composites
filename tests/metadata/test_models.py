@@ -18,8 +18,10 @@ PRODUCED_AT = datetime(2026, 9, 3, 12, 0, 0, tzinfo=UTC)
 
 
 @pytest.fixture
-def meta(granule_dir):
-    return granule_metadata("14TPN", FEBRUARY, granule_dir, produced_at=PRODUCED_AT)
+def meta(granule_dir, browse_image):
+    return granule_metadata(
+        "14TPN", FEBRUARY, granule_dir, browse_image, produced_at=PRODUCED_AT
+    )
 
 
 def test_identity_comes_from_the_tile_and_period(meta):
@@ -76,8 +78,8 @@ def test_size_is_the_total_of_those_files(meta, granule_dir):
     assert meta.size_bytes == expected
 
 
-def test_produced_at_defaults_to_now(granule_dir):
-    meta = granule_metadata("14TPN", FEBRUARY, granule_dir)
+def test_produced_at_defaults_to_now(granule_dir, browse_image):
+    meta = granule_metadata("14TPN", FEBRUARY, granule_dir, browse_image)
 
     assert meta.produced_at.tzinfo is UTC
 

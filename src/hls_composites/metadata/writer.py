@@ -16,6 +16,7 @@ def write_metadata(
     tile_id: str,
     date_range: DateRange,
     granule_dir: Path,
+    browse_image: Path,
     inputs: list[Granule] | None = None,
 ) -> list[Path]:
     """Describe the composite in `granule_dir` and write both documents there.
@@ -31,6 +32,8 @@ def write_metadata(
     granule_dir : pathlib.Path
         Directory holding the written GeoTIFFs; the documents are written
         alongside them.
+    browse_image : pathlib.Path
+        The rendered browse image, referenced from both documents.
     inputs : list of Granule, optional
         The granules composited, recorded as provenance in both documents.
 
@@ -39,7 +42,9 @@ def write_metadata(
     list of pathlib.Path
         The ECHO-10 document and the STAC item, in that order.
     """
-    meta = granule_metadata(tile_id, date_range, granule_dir, inputs=inputs)
+    meta = granule_metadata(
+        tile_id, date_range, granule_dir, browse_image, inputs=inputs
+    )
 
     xml_path = granule_dir / f"{meta.granule_id}{CMR_SUFFIX}"
     xml_path.write_text(to_echo10(meta))

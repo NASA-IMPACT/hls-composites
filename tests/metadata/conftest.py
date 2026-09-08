@@ -53,3 +53,11 @@ def granule_dir(tmp_path: Path) -> Path:
     _write(dest / f"{GRANULE_ID}.NDVI.tif", ndvi, -19999)
 
     return dest
+
+
+@pytest.fixture
+def browse_image(granule_dir: Path) -> Path:
+    """The preview every granule carries."""
+    path = granule_dir / f"{GRANULE_ID}.jpg"
+    path.write_bytes(b"jpeg")
+    return path

@@ -5,7 +5,8 @@ import rasterio
 import xarray as xr
 from rasterio.transform import from_origin
 
-from hls_composites.io import composite_id, write_composite
+from hls_composites.composite import BROWSE_BANDS
+from hls_composites.io import composite_id, write_rasters
 from hls_composites.models import DateRange
 
 CRS = "EPSG:32614"
@@ -39,9 +40,9 @@ def test_composite_id_follows_prototype_naming():
     assert composite_id("14TPN", date_range) == "HLS.M30.T14TPN.2020183.2020213.v2.0"
 
 
-def test_write_composite_creates_named_dir_and_files(tmp_path):
+def test_write_rasters_creates_named_dir_and_files(tmp_path):
     date_range = DateRange(start=date(2020, 7, 1), end=date(2020, 7, 31))
-    dest = write_composite(_georef_dataset(), tmp_path, "14TPN", date_range)
+    dest = write_rasters(_georef_dataset(), tmp_path, "14TPN", date_range)
 
     granule_id = "HLS.M30.T14TPN.2020183.2020213.v2.0"
     assert dest == tmp_path / granule_id
@@ -51,7 +52,7 @@ def test_write_composite_creates_named_dir_and_files(tmp_path):
 
 def test_written_geotiff_is_internally_tiled_at_512(tmp_path):
     date_range = DateRange(start=date(2020, 7, 1), end=date(2020, 7, 31))
-    dest = write_composite(_georef_dataset(), tmp_path, "14TPN", date_range)
+    dest = write_rasters(_georef_dataset(), tmp_path, "14TPN", date_range)
 
     with rasterio.open(dest / "HLS.M30.T14TPN.2020183.2020213.v2.0.NDVI.tif") as src:
         assert src.profile["tiled"] is True
@@ -64,7 +65,7 @@ def test_written_geotiff_is_internally_tiled_at_512(tmp_path):
 def test_written_geotiff_round_trips_dtype_nodata_crs_and_scale(tmp_path):
     date_range = DateRange(start=date(2020, 7, 1), end=date(2020, 7, 31))
     ds = _georef_dataset()
-    dest = write_composite(ds, tmp_path, "14TPN", date_range)
+    dest = write_rasters(ds, tmp_path, "14TPN", date_range)
     prefix = dest / "HLS.M30.T14TPN.2020183.2020213.v2.0"
 
     with rasterio.open(f"{prefix}.NDVI.tif") as src:
@@ -88,7 +89,26 @@ def test_written_geotiff_omits_nodata_when_the_variable_declares_none(tmp_path):
     date_range = DateRange(start=date(2020, 7, 1), end=date(2020, 7, 31))
     ds = _georef_dataset()
     del ds["DOY"].attrs["nodata"]
-    dest = write_composite(ds, tmp_path, "14TPN", date_range)
+    dest = write_rasters(ds, tmp_path, "14TPN", date_range)
 
     with rasterio.open(dest / "HLS.M30.T14TPN.2020183.2020213.v2.0.DOY.tif") as src:
         assert src.nodata is None
+
+
+def test_write_rasters_skips_the_browse_bands(tmp_path):
+    """R, G and B exist for the preview and are never written as products."""
+    import numpy as np
+
+    ds = _georef_dataset()
+    shape = ds[next(iter(ds.data_vars))].shape
+    for name in BROWSE_BANDS:
+        ds[name] = (("y", "x"), np.zeros(shape, dtype=np.int16))
+        ds[name].attrs["nodata"] = -9999
+
+    dest = write_rasters(
+        ds, tmp_path, "14TPN", DateRange(date(2020, 7, 1), date(2020, 7, 31))
+    )
+
+    written = {path.name.split(".")[-2] for path in dest.glob("*.tif")}
+    assert written.isdisjoint(BROWSE_BANDS)
+    assert written
