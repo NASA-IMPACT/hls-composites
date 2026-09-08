@@ -17,10 +17,11 @@ import numpy as np
 import rasterio
 import rioxarray  # noqa: F401  (registers the .rio accessor)
 import xarray as xr
+from affine import Affine
 from rasterio.crs import CRS
 
 from hls_composites.composite import BLOCK_SIZE, BROWSE_BANDS
-from hls_composites.crs import corrected_crs
+from hls_composites.crs import corrected_grid
 from hls_composites.models import DateRange
 
 
@@ -67,6 +68,7 @@ def _write_geotiff(
     block_size: int,
     creation_options: GeoTiffCreationOptions,
     crs: CRS,
+    transform: Affine,
 ) -> None:
     values = np.asarray(array.values)
     profile: dict[str, Any] = {
@@ -76,7 +78,7 @@ def _write_geotiff(
         "count": 1,
         "dtype": values.dtype,
         "crs": crs,
-        "transform": array.rio.transform(),
+        "transform": transform,
         "tiled": True,
         "blockxsize": block_size,
         "blockysize": block_size,
@@ -137,7 +139,7 @@ def write_rasters(
     dest.mkdir(parents=True, exist_ok=True)
 
     sample = next(iter(computed.data_vars.values()))
-    crs = corrected_crs(
+    crs, transform = corrected_grid(
         sample.rio.crs,
         sample.rio.transform(),
         (sample.shape[0], sample.shape[1]),
@@ -153,5 +155,6 @@ def write_rasters(
             block_size,
             creation_options,
             crs,
+            transform,
         )
     return dest

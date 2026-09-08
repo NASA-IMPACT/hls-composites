@@ -14,13 +14,13 @@ import pystac
 import rasterio
 from pystac.extensions.mgrs import MgrsExtension
 
+from hls_composites.crs import mgrs_fields
 from hls_composites.metadata.models import (
     BROWSE_DESCRIPTION,
     DOI,
     PLACEHOLDER,
     GranuleMetadata,
 )
-from hls_composites.models import mgrs_fields
 
 PROJECTION_SCHEMA_URI = (
     "https://stac-extensions.github.io/projection/v1.2.0/schema.json"

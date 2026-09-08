@@ -1,23 +1,60 @@
-"""Reconcile a raster's declared CRS with the hemisphere its tile ID implies.
+"""MGRS tile vocabulary, and putting southern granules in a southern UTM zone.
 
-HLS labels some southern-hemisphere granules with a northern UTM code while
-writing coordinates that carry the southern false northing. The pixels are
-where they belong, but anything that reprojects via the declared CRS -- this
-project's metadata, among others -- places the granule in the wrong hemisphere.
+HLS writes southern-hemisphere granules with a northern UTM code and negative
+northings. Read with that code the coordinates resolve correctly, so nothing is
+misplaced, but the northern definition is the wrong one for southern data and
+consumers expect the southern zone.
 
-The two UTM flavours of a zone differ only by that 10,000,000 m false northing,
-so switching between them is a relabel: the coordinates already mean what the
-southern definition says they mean, and no pixel moves.
+Tile IDs live here because their latitude band is what says which hemisphere a
+granule belongs to, independently of whatever its CRS claims.
 """
+
+import re
 
 from affine import Affine
 from rasterio.crs import CRS
 from rasterio.transform import array_bounds
 
-from hls_composites.models import is_southern
+# Zone 1-60, latitude band excluding I and O, two-letter grid square.
+_MGRS_TILE = re.compile(r"^([0-9]{1,2})([C-HJ-NP-X])([A-Z]{2})$")
+
+SOUTHERN_BANDS = frozenset("CDEFGHJKLM")
+"""MGRS latitude bands south of the equator. N through X are northern."""
+
+
+def mgrs_fields(tile_id: str) -> tuple[int, str, str]:
+    """Split an MGRS tile ID into its UTM zone, latitude band, and grid square.
+
+    Parameters
+    ----------
+    tile_id : str
+        Tile ID without the leading "T", e.g. ``14TPN``.
+
+    Returns
+    -------
+    tuple
+        ``(utm_zone, latitude_band, grid_square)``, e.g. ``(14, "T", "PN")``.
+
+    Raises
+    ------
+    ValueError
+        If `tile_id` is not a well-formed MGRS tile.
+    """
+    match = _MGRS_TILE.match(tile_id)
+    if match is None:
+        raise ValueError(f"not an MGRS tile: {tile_id!r}")
+    zone, band, square = match.groups()
+    return int(zone), band, square
+
+
+def is_southern(tile_id: str) -> bool:
+    """Whether an MGRS tile lies south of the equator."""
+    _, band, _ = mgrs_fields(tile_id)
+    return band in SOUTHERN_BANDS
+
 
 SOUTHERN_FALSE_NORTHING = 10_000_000.0
-"""Metres the southern UTM definition adds, so its northings stay positive."""
+"""Metres the southern UTM definition measures northings from."""
 
 _NORTHERN_UTM = range(32601, 32661)
 _NORTHERN_TO_SOUTHERN = 100
@@ -25,26 +62,23 @@ _NORTHERN_TO_SOUTHERN = 100
 
 
 def _declares_southern(crs: CRS) -> bool:
-    """Whether `crs` is the southern flavour of a UTM zone."""
+    """Whether `crs` is the southern definition of a UTM zone."""
     return bool(crs.to_dict().get("south", False))
 
 
-def corrected_crs(
+def corrected_grid(
     crs: CRS, transform: Affine, shape: tuple[int, int], tile_id: str
-) -> CRS:
-    """The CRS matching where a southern tile's coordinates actually are.
+) -> tuple[CRS, Affine]:
+    """Georeferencing for a southern tile, expressed in its southern UTM zone.
 
-    Relabels only when all of these hold, so it corrects the upstream
-    mislabelling without depending on it:
+    A zone's two definitions differ only in where northings are measured from:
+    zero in the north, 10,000,000 m in the south. Converting therefore moves the
+    origin as well as changing the code. The array is never touched and no pixel
+    is resampled.
 
-    - the tile's MGRS band is south of the equator,
-    - the CRS is a northern UTM zone, and
-    - the northings sit between zero and the southern false northing, which is
-      what carrying that offset looks like.
-
-    A granule already declaring the southern flavour fails the second test; one
-    using a northern zone with negative northings -- equally valid -- fails the
-    third. Both are returned untouched.
+    Inputs that already agree are returned untouched -- a granule declaring the
+    southern zone, or a northern tile -- so this corrects the upstream labelling
+    without depending on it.
 
     Parameters
     ----------
@@ -60,9 +94,14 @@ def corrected_crs(
 
     Returns
     -------
-    rasterio.crs.CRS
-        `crs`, or the same zone's southern definition when that is the one the
-        coordinates were written against.
+    tuple of (rasterio.crs.CRS, affine.Affine)
+        The CRS and transform to write.
+
+    Raises
+    ------
+    ValueError
+        If the northings sit above the southern false northing, which neither
+        input above can produce for a southern tile.
     """
     epsg = crs.to_epsg()
     if (
@@ -71,18 +110,25 @@ def corrected_crs(
         or epsg is None
         or epsg not in _NORTHERN_UTM
     ):
-        return crs
+        return crs, transform
 
     _, bottom, _, top = array_bounds(shape[0], shape[1], transform)
-    if bottom < 0.0:
-        # A northern zone with negative northings is the other valid way to
-        # write southern data. Not ours to rewrite.
-        return crs
     if top > SOUTHERN_FALSE_NORTHING:
         raise ValueError(
             f"tile {tile_id} is southern, but its northings exceed "
-            f"{SOUTHERN_FALSE_NORTHING:,.0f}: north of the equator with the "
-            f"offset removed, and beyond the valid range of {crs} without it"
+            f"{SOUTHERN_FALSE_NORTHING:,.0f}, which no southern tile reaches"
         )
 
-    return CRS.from_epsg(epsg + _NORTHERN_TO_SOUTHERN)
+    southern = CRS.from_epsg(epsg + _NORTHERN_TO_SOUTHERN)
+    if bottom >= 0.0:
+        # The offset is already carried, so only the label is wrong.
+        return southern, transform
+
+    return southern, Affine(
+        transform.a,
+        transform.b,
+        transform.c,
+        transform.d,
+        transform.e,
+        transform.f + SOUTHERN_FALSE_NORTHING,
+    )

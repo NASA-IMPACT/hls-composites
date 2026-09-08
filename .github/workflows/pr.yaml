@@ -18,7 +18,7 @@ jobs:
 
       # The deploy group carries the CDK dependencies that cdk/ and tests/cdk/ need.
       - name: Install dependencies
-        run: uv sync --frozen --group deploy
+        run: uv sync --frozen --group deploy --group seed
 
       # scripts/* are the single source of truth for these commands.
       - name: Lint
