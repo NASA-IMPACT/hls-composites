@@ -16,7 +16,7 @@ from aws_cdk import (
     aws_glue as glue,
     aws_sqs as sqs,
 )
-from batch_event_job_monitor.models import RetryPolicy
+from batch_event_job_monitor.models import ExitCodeOutcomesBuilder, RetryPolicy
 from batch_event_job_monitor_cdk import (
     AthenaOutputsTable,
     AthenaRecordsTable,
@@ -30,8 +30,13 @@ from batch_event_job_monitor_cdk import (
 )
 from constructs import Construct
 
+from hls_composites.exit_codes import NO_INPUTS
+
 JOB_TYPE = "monthly-composite"
 """The one job type this project submits."""
+
+NO_INPUTS_STATE = "FAILURE_NO_INPUTS"
+"""State recorded when a tile-month had no granules to composite."""
 
 INVENTORY_PREFIX = "inventories/"
 """Shared root the bucket's S3 Inventory reports are delivered under."""
@@ -150,6 +155,11 @@ class JobMonitoring(Construct):
                 job_queue=job_queue,
                 job_definition=job_definition,
                 retry_policy=RetryPolicy(max_attempts=retry_max_attempts),
+                exit_code_outcomes=(
+                    ExitCodeOutcomesBuilder()
+                    .add(NO_INPUTS, NO_INPUTS_STATE, dlq=False)
+                    .build()
+                ),
             )
         }
 
