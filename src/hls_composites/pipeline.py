@@ -21,7 +21,11 @@ from hls_composites.aws import (
     upload_directory,
 )
 from hls_composites.browse import write_browse_image
-from hls_composites.composite import CompositeOutput, build_composite
+from hls_composites.composite import (
+    CompositeOutput,
+    build_composite,
+    spatial_coverage,
+)
 from hls_composites.discovery import scan_bucket_for_granules
 from hls_composites.io import composite_id, write_rasters
 from hls_composites.metadata.manifest import write_manifest
@@ -142,7 +146,10 @@ def create_composite(
                     work_dir,
                     tile_id,
                     date_range,
-                    tags=granule_tags(date_range),
+                    tags=granule_tags(
+                        date_range,
+                        spatial_coverage(computed["ValidCount"].to_numpy()),
+                    ),
                 )
             )
             browse = write_browse_image(computed, dest / f"{dest.name}.jpg")
@@ -173,17 +180,19 @@ def create_composite(
         return CompositeResult(granule_id, len(granules))
 
 
-def granule_tags(date_range: DateRange) -> dict[str, str]:
+def granule_tags(date_range: DateRange, coverage: float) -> dict[str, str]:
     """GeoTIFF tags describing how and when the composite was produced.
 
     Named as the daily HLS products name their equivalents, so a consumer
-    reading both finds the processing time under the same key.
+    reading both finds the processing time under the same key. `coverage`
+    is rounded to whole percent for the same reason.
     """
     return {
         "COMPOSITING_ALGORITHM": COMPOSITING_ALGORITHM,
         "COMPOSITING_START_DATE": date_range.start.isoformat(),
         "COMPOSITING_END_DATE": date_range.end.isoformat(),
         "HLS_PROCESSING_TIME": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "spatial_coverage": str(round(coverage)),
     }
 
 

@@ -4,7 +4,9 @@ from datetime import date
 from pathlib import Path
 
 import boto3
+import numpy as np
 import pytest
+import xarray as xr
 
 from hls_composites import pipeline
 from hls_composites.models import DateRange, Granule
@@ -33,6 +35,11 @@ def stages(monkeypatch, tmp_path):
 
         def compute(self):
             return self
+
+        def __getitem__(self, name):
+            # Only ValidCount is read, to tag the rasters with the coverage.
+            assert name == "ValidCount"
+            return xr.DataArray(np.ones((2, 2), dtype=np.uint8))
 
     def fake_build(granules, **kwargs):
         captured["build"] = {"n": len(granules), "kwargs": kwargs}

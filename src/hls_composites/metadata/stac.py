@@ -41,12 +41,12 @@ def _asset_key(path_name: str, granule_id: str) -> str:
     return path_name.removeprefix(f"{granule_id}.").removesuffix(".tif")
 
 
-def _band_object(band: AssetBand) -> dict[str, Any]:
+def _band_object(band: AssetBand, valid_percent: float) -> dict[str, Any]:
     """One STAC 1.1 band object: what the value means and how to decode it.
 
-    `nodata` and `data_type` are common metadata in STAC 1.1; `raster:scale`
-    stayed behind in the raster extension, which the item declares when any
-    band carries one.
+    `nodata`, `data_type` and `statistics` are common metadata in STAC 1.1;
+    `raster:scale` stayed behind in the raster extension, which the item
+    declares when any band carries one.
     """
     obj: dict[str, Any] = {"name": band.name, "data_type": band.data_type}
     if band.description:
@@ -56,6 +56,7 @@ def _band_object(band: AssetBand) -> dict[str, Any]:
     if band.scale is not None:
         obj["raster:scale"] = band.scale
         obj["raster:offset"] = 0.0
+    obj["statistics"] = {"valid_percent": valid_percent}
     return obj
 
 
@@ -102,6 +103,9 @@ def to_stac_item(meta: GranuleMetadata) -> dict[str, Any]:
         item.stac_extensions.append(SCIENTIFIC_SCHEMA_URI)
         item.properties["sci:doi"] = DOI
 
+    # Named as the daily HLS products name their own granule-level coverage.
+    item.properties["hls:spatial_coverage"] = meta.spatial_coverage
+
     zone, band, square = mgrs_fields(meta.tile_id)
     mgrs = MgrsExtension.ext(item, add_if_missing=True)
     mgrs.utm_zone = zone
@@ -131,7 +135,9 @@ def to_stac_item(meta: GranuleMetadata) -> dict[str, Any]:
                 href=path.name,
                 media_type=pystac.MediaType.COG,
                 roles=["data"],
-                extra_fields={"bands": [_band_object(bands[key])]},
+                extra_fields={
+                    "bands": [_band_object(bands[key], meta.spatial_coverage)]
+                },
             ),
         )
 

@@ -12,11 +12,10 @@ import datetime as dt
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import numpy as np
 import rasterio
 from rasterio.warp import transform_bounds
 
-from hls_composites.composite import VALID_COUNT_FILL
+from hls_composites.composite import VALID_COUNT_FILL, spatial_coverage
 from hls_composites.crs import crs_name
 from hls_composites.indices import NDVI
 from hls_composites.io import composite_id
@@ -163,7 +162,7 @@ class GranuleMetadata:
         Upper-left corner in projected coordinates.
     ncols, nrows : int
         Raster width and height in pixels.
-    spatial_coverage : int
+    spatial_coverage : float
         Percentage of pixels carrying data, 0 to 100.
     scale_factor, add_offset : float
         Encoding of the index rasters.
@@ -193,7 +192,7 @@ class GranuleMetadata:
     uly: float
     ncols: int
     nrows: int
-    spatial_coverage: int
+    spatial_coverage: float
     scale_factor: float
     add_offset: float
     fill_value: int
@@ -205,12 +204,10 @@ class GranuleMetadata:
     inputs: list[InputGranule] = field(default_factory=list)
 
 
-def _spatial_coverage(valid_count_path: Path) -> int:
-    """Percentage of pixels with at least one contributing observation."""
+def _spatial_coverage(valid_count_path: Path) -> float:
+    """Read back the written `ValidCount` and measure what it covers."""
     with rasterio.open(valid_count_path) as src:
-        data = src.read(1)
-    covered = int(np.count_nonzero(data != VALID_COUNT_FILL))
-    return round(100 * covered / data.size)
+        return spatial_coverage(src.read(1))
 
 
 def _asset_bands(assets: list[Path]) -> list[AssetBand]:
@@ -281,7 +278,7 @@ def granule_metadata(
         )
 
     valid_count = granule_dir / f"{granule_dir.name}.ValidCount.tif"
-    coverage = _spatial_coverage(valid_count) if valid_count.exists() else 0
+    coverage = _spatial_coverage(valid_count) if valid_count.exists() else 0.0
 
     index = NDVI()
     return GranuleMetadata(

@@ -204,6 +204,16 @@ def to_reflectance(
     }
 
 
+def spatial_coverage(valid_count: np.ndarray) -> float:
+    """Percentage of pixels with at least one contributing observation.
+
+    Every product layer shares one mask, so this is the granule's coverage
+    whichever layer it is measured from.
+    """
+    covered = int(np.count_nonzero(valid_count != VALID_COUNT_FILL))
+    return 100 * covered / valid_count.size
+
+
 def _long_names(name: str, long_name: str) -> list[tuple[str, str]]:
     """Pair a variable and its temporal standard deviation with their names."""
     return [(name, long_name), (f"{name}_std", f"{long_name} standard deviation")]

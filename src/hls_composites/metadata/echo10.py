@@ -47,7 +47,8 @@ def _additional_attributes(meta: GranuleMetadata) -> list[tuple[str, list[str]]]
     single_valued: list[tuple[str, str]] = [
         ("PRODUCT_URI", f"{PRODUCT_URI_BASE}/{meta.granule_id}"),
         ("MGRS_TILE_ID", meta.tile_id),
-        ("SPATIAL_COVERAGE", str(meta.spatial_coverage)),
+        # Integer percent, as the daily products declare it.
+        ("SPATIAL_COVERAGE", str(round(meta.spatial_coverage))),
         ("SPATIAL_RESOLUTION", str(SPATIAL_RESOLUTION)),
         ("PROCESSING_TIME", _timestamp(meta.produced_at)),
         ("HORIZONTAL_CS_CODE", f"EPSG:{meta.epsg}"),

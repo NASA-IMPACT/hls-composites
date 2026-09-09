@@ -123,6 +123,18 @@ def test_the_raster_extension_is_declared_for_the_scaled_bands(item):
     assert RASTER_SCHEMA_URI in item["stac_extensions"]
 
 
+def test_item_declares_its_spatial_coverage(item):
+    """12 of 16 pixels carry data."""
+    assert item["properties"]["hls:spatial_coverage"] == 75.0
+
+
+def test_each_band_reports_the_valid_percentage(item):
+    """Every layer shares one mask, so each band reports the granule's coverage."""
+    for key in ("NDVI", "ValidCount"):
+        stats = item["assets"][key]["bands"][0]["statistics"]
+        assert stats["valid_percent"] == 75.0
+
+
 def test_item_validates_against_the_real_schemas(item):
     """Network-dependent, and therefore a test-time check only."""
     pystac.Item.from_dict(item).validate()
