@@ -22,6 +22,15 @@ SOUTHERN_BANDS = frozenset("CDEFGHJKLM")
 """MGRS latitude bands south of the equator. N through X are northern."""
 
 
+def crs_name(crs: CRS) -> str:
+    """The CRS's declared name, e.g. ``WGS 84 / UTM zone 14N``.
+
+    It is the first quoted string in the WKT, so no pyproj lookup is needed.
+    """
+    parts = crs.to_wkt().split('"')
+    return parts[1] if len(parts) > 1 else str(crs)
+
+
 def mgrs_fields(tile_id: str) -> tuple[int, str, str]:
     """Split an MGRS tile ID into its UTM zone, latitude band, and grid square.
 

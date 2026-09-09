@@ -9,6 +9,7 @@ The GDAL creation options (compression, predictor, etc.) are a caller-overridabl
 argument, defaulting to the daily HLS products' own settings.
 """
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -20,7 +21,7 @@ from affine import Affine
 from rasterio.crs import CRS
 
 from hls_composites.composite import BROWSE_BANDS
-from hls_composites.crs import corrected_grid
+from hls_composites.crs import corrected_grid, crs_name
 from hls_composites.models import DateRange
 
 
@@ -51,6 +52,9 @@ DEFAULT_CREATION_OPTIONS: CogCreationOptions = {
 Matches the daily HLS products, so a composite decompresses and resamples its
 overviews the same way its inputs do.
 """
+
+ADD_OFFSET = 0.0
+"""Additive offset of every encoded band. No index or reflectance band has one."""
 
 BLOCK_SIZE = 256
 """Internal COG tile size, matching the daily HLS products.
@@ -88,6 +92,7 @@ def _write_cog(
     creation_options: CogCreationOptions,
     crs: CRS,
     transform: Affine,
+    tags: Mapping[str, str],
 ) -> None:
     values = np.asarray(array.values)
     profile: dict[str, Any] = {
@@ -109,6 +114,38 @@ def _write_cog(
         scale = array.attrs.get("scale_factor")
         if scale is not None:
             dst.scales = (scale,)
+        long_name = array.attrs.get("long_name")
+        if long_name is not None:
+            dst.set_band_description(1, long_name)
+        dst.update_tags(**_band_tags(array), **_grid_tags(crs, transform, values.shape))
+        dst.update_tags(**tags)
+
+
+def _band_tags(array: xr.DataArray) -> dict[str, str]:
+    """The band's own encoding, spelled as the daily HLS products spell it."""
+    out = {}
+    if "long_name" in array.attrs:
+        out["long_name"] = str(array.attrs["long_name"])
+    if "scale_factor" in array.attrs:
+        out["scale_factor"] = str(array.attrs["scale_factor"])
+        out["add_offset"] = str(ADD_OFFSET)
+    if "nodata" in array.attrs:
+        out["_FillValue"] = str(array.attrs["nodata"])
+    return out
+
+
+def _grid_tags(crs: CRS, transform: Affine, shape: tuple[int, ...]) -> dict[str, str]:
+    """The grid, spelled as the daily HLS products spell it."""
+    epsg = crs.to_epsg()
+    return {
+        "NROWS": str(shape[0]),
+        "NCOLS": str(shape[1]),
+        "ULX": str(transform.c),
+        "ULY": str(transform.f),
+        "SPATIAL_RESOLUTION": str(transform.a),
+        "HORIZONTAL_CS_CODE": f"EPSG:{epsg}" if epsg is not None else crs.to_wkt(),
+        "HORIZONTAL_CS_NAME": crs_name(crs),
+    }
 
 
 def write_rasters(
@@ -118,6 +155,7 @@ def write_rasters(
     date_range: DateRange,
     block_size: int = BLOCK_SIZE,
     creation_options: CogCreationOptions | None = None,
+    tags: Mapping[str, str] | None = None,
 ) -> Path:
     """Write each product variable of a computed composite to a COG.
 
@@ -143,6 +181,11 @@ def write_rasters(
         Internal COG tile size, by default `BLOCK_SIZE`.
     creation_options : CogCreationOptions or None, optional
         GDAL COG creation options, by default `DEFAULT_CREATION_OPTIONS`.
+    tags : mapping of str to str, optional
+        Granule-scope GeoTIFF tags written to every file, describing facts
+        this module cannot derive from the arrays -- provenance, production
+        time, the compositing period. The band's own encoding and the grid
+        are always written and need not be passed.
 
     Returns
     -------
@@ -173,5 +216,6 @@ def write_rasters(
             creation_options,
             crs,
             transform,
+            {"GRANULE_ID": granule_id, **(tags or {})},
         )
     return dest

@@ -27,6 +27,9 @@ CompositeOutput = Literal["indexes", "bands"]
 DOY_FILL = -1
 """Fill value for `DOY`. Julian days are 1..366, so a negative is unreachable."""
 
+DOY_LONG_NAME = "Day of year of the selected observation"
+"""`DOY`'s band description."""
+
 BROWSE_BANDS = ("R", "G", "B")
 """Bands composited for the browse image only; never written as products."""
 
@@ -35,6 +38,9 @@ VALID_COUNT_FILL = 255
 
 A tile-month holds nowhere near 255 granules, so no real count can reach it.
 """
+
+VALID_COUNT_LONG_NAME = "Count of valid observations"
+"""`ValidCount`'s band description."""
 
 QA_BIT = {
     "cirrus": 0,
@@ -196,6 +202,11 @@ def to_reflectance(
         * SPEC_BY_BAND[band].scale
         for band in bands
     }
+
+
+def _long_names(name: str, long_name: str) -> list[tuple[str, str]]:
+    """Pair a variable and its temporal standard deviation with their names."""
+    return [(name, long_name), (f"{name}_std", f"{long_name} standard deviation")]
 
 
 def select_best_index(
@@ -698,22 +709,26 @@ def build_composite(
         template=template,
     )
 
-    # Self-describe each var's nodata/scale so the writer stays generic. The
-    # aux layers share one fill and need no scale.
+    # Self-describe each var's nodata/scale/name so the writer stays generic.
+    # The aux layers share one fill and need no scale.
     if output == "bands":
         for band in bands:
             if not band.is_reflectance:
                 continue
-            for name in (band.name, f"{band.name}_std"):
+            for name, long_name in _long_names(band.name, band.long_name):
                 composite[name].attrs["nodata"] = band.nodata
                 composite[name].attrs["scale_factor"] = band.scale
+                composite[name].attrs["long_name"] = long_name
     else:
         for index in indices:
-            for name in (index.name, f"{index.name}_std"):
+            for name, long_name in _long_names(index.name, index.long_name):
                 composite[name].attrs["nodata"] = index.fill_value
                 composite[name].attrs["scale_factor"] = index.scale_factor
+                composite[name].attrs["long_name"] = long_name
         for name in BROWSE_BANDS:
             composite[name].attrs["nodata"] = SPEC_BY_BAND[Band[name]].nodata
     composite["ValidCount"].attrs["nodata"] = VALID_COUNT_FILL
+    composite["ValidCount"].attrs["long_name"] = VALID_COUNT_LONG_NAME
     composite["DOY"].attrs["nodata"] = DOY_FILL
+    composite["DOY"].attrs["long_name"] = DOY_LONG_NAME
     return composite

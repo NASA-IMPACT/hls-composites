@@ -17,6 +17,7 @@ import rasterio
 from rasterio.warp import transform_bounds
 
 from hls_composites.composite import VALID_COUNT_FILL
+from hls_composites.crs import crs_name
 from hls_composites.indices import NDVI
 from hls_composites.io import composite_id
 from hls_composites.models import DateRange, Granule
@@ -175,15 +176,6 @@ class GranuleMetadata:
     inputs: list[InputGranule] = field(default_factory=list)
 
 
-def _crs_name(crs: rasterio.crs.CRS) -> str:
-    """The CRS's declared name, e.g. ``WGS 84 / UTM zone 14N``.
-
-    It is the first quoted string in the WKT, so no pyproj lookup is needed.
-    """
-    parts = crs.to_wkt().split('"')
-    return parts[1] if len(parts) > 1 else str(crs)
-
-
 def _spatial_coverage(valid_count_path: Path) -> int:
     """Percentage of pixels with at least one contributing observation."""
     with rasterio.open(valid_count_path) as src:
@@ -234,7 +226,7 @@ def granule_metadata(
 
     with rasterio.open(assets[0]) as src:
         epsg = src.crs.to_epsg()
-        crs_name = _crs_name(src.crs)
+        name = crs_name(src.crs)
         ulx, uly = src.transform.c, src.transform.f
         ncols, nrows = src.width, src.height
         west, south, east, north = transform_bounds(
@@ -253,7 +245,7 @@ def granule_metadata(
         boundary=[(west, north), (west, south), (east, south), (east, north)],
         bbox=(west, south, east, north),
         epsg=int(epsg) if epsg is not None else 0,
-        crs_name=crs_name,
+        crs_name=name,
         ulx=ulx,
         uly=uly,
         ncols=ncols,
