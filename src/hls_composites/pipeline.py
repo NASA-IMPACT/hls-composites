@@ -24,6 +24,7 @@ from hls_composites.browse import write_browse_image
 from hls_composites.composite import (
     CompositeOutput,
     build_composite,
+    read_platforms,
     spatial_coverage,
 )
 from hls_composites.discovery import scan_bucket_for_granules
@@ -153,6 +154,8 @@ def create_composite(
                 )
             )
             browse = write_browse_image(computed, dest / f"{dest.name}.jpg")
+            # Inside the credential scope: this reads the inputs' own headers.
+            platforms = read_platforms(granules)
 
         documents = write_metadata(
             tile_id,
@@ -160,6 +163,7 @@ def create_composite(
             dest,
             browse,
             inputs=granules,
+            platforms=platforms,
         )
         on_progress(f"Wrote {len(documents)} metadata documents")
 

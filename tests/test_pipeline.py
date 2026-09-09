@@ -19,6 +19,7 @@ from hls_composites.pipeline import (
 
 JULY = DateRange(date(2015, 7, 1), date(2015, 7, 31))
 GRANULES = [Granule("s3://b/g", "L30", date(2015, 7, 10))]
+PLATFORMS = [("LANDSAT-8", "OLI")]
 
 
 @pytest.fixture
@@ -55,6 +56,8 @@ def stages(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline, "scan_bucket_for_granules", fake_scan)
     monkeypatch.setattr(pipeline, "build_composite", fake_build)
     monkeypatch.setattr(pipeline, "write_rasters", fake_write)
+    # Reads the inputs' headers, which these stubs do not produce.
+    monkeypatch.setattr(pipeline, "read_platforms", lambda granules: PLATFORMS)
     # Metadata reads the written rasters, which these stubs do not produce.
     # Tests that care about it override this.
     monkeypatch.setattr(pipeline, "write_metadata", lambda *a, **k: [])
@@ -218,11 +221,12 @@ class TestMetadata:
         written: dict = {}
 
         def fake_write_metadata(
-            tile_id, date_range, granule_dir, browse_image, inputs=None
+            tile_id, date_range, granule_dir, browse_image, inputs=None, platforms=None
         ):
             written.update(
                 tile_id=tile_id,
                 granule_dir=Path(granule_dir),
+                platforms=platforms,
                 inputs=list(inputs or []),
                 browse_image=browse_image,
             )

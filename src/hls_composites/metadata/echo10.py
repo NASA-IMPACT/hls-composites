@@ -15,7 +15,6 @@ from hls_composites.metadata.models import (
     DAY_NIGHT_FLAG,
     DOI,
     DOI_AUTHORITY,
-    PLATFORMS,
     PRODUCT_URI_BASE,
     SPATIAL_RESOLUTION,
     VERSION_ID,
@@ -121,7 +120,7 @@ def to_echo10(meta: GranuleMetadata) -> str:
         _sub(point, "PointLatitude", f"{latitude:.8f}")
 
     platforms = _sub(granule, "Platforms")
-    for platform_name, instrument_name in PLATFORMS:
+    for platform_name, instrument_name in meta.platforms:
         platform = _sub(platforms, "Platform")
         _sub(platform, "ShortName", platform_name)
         instruments = _sub(platform, "Instruments")

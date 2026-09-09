@@ -3,7 +3,9 @@ from datetime import date
 
 import numpy as np
 import pytest
+import rasterio
 import xarray as xr
+from rasterio.transform import from_origin
 
 from hls_composites.bands import (
     BLUE,
@@ -37,6 +39,7 @@ from hls_composites.composite import (
     compute_out_of_range_mask,
     observation_doy,
     read_band_with_retry,
+    read_platforms,
     select_best_index,
     to_reflectance,
     valid_count,
@@ -57,6 +60,59 @@ def _granule(satellite: str) -> Granule:
         satellite=satellite,
         date=date(2026, 5, 31),
     )
+
+
+def _fmask_asset(tmp_path, granule, spacecraft):
+    """Write the Fmask asset `read_platforms` looks for, tagged as HLS tags it."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    path = tmp_path / f"{granule.path.rsplit('/', 1)[-1]}.Fmask.tif"
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        height=1,
+        width=1,
+        count=1,
+        dtype="uint8",
+        crs="EPSG:32755",
+        transform=from_origin(300000, 5900000, 30, 30),
+    ) as dst:
+        dst.write(np.zeros((1, 1), dtype=np.uint8), 1)
+        if spacecraft is not None:
+            dst.update_tags(SPACECRAFT_NAME=spacecraft)
+    return dataclasses.replace(granule, path=str(path).removesuffix(".Fmask.tif"))
+
+
+def test_read_platforms_names_the_spacecraft_the_inputs_carry(tmp_path):
+    """The granule ID names only the product, so the tag is the only source."""
+    granules = [
+        _fmask_asset(tmp_path / "a", _granule("S30"), "Sentinel-2C"),
+        _fmask_asset(tmp_path / "b", _granule("L30"), "LANDSAT-9"),
+    ]
+
+    assert read_platforms(granules) == [
+        ("LANDSAT-9", "OLI"),
+        ("Sentinel-2C", "Sentinel-2 MSI"),
+    ]
+
+
+def test_read_platforms_deduplicates_repeated_spacecraft(tmp_path):
+    granules = [
+        _fmask_asset(tmp_path / "a", _granule("S30"), "Sentinel-2B"),
+        _fmask_asset(tmp_path / "b", _granule("S30"), "Sentinel-2B"),
+    ]
+
+    assert read_platforms(granules) == [("Sentinel-2B", "Sentinel-2 MSI")]
+
+
+def test_read_platforms_omits_a_granule_that_names_no_spacecraft(tmp_path):
+    """Better to under-report than to guess which unit was flying."""
+    granules = [
+        _fmask_asset(tmp_path / "a", _granule("S30"), None),
+        _fmask_asset(tmp_path / "b", _granule("L30"), "LANDSAT-8"),
+    ]
+
+    assert read_platforms(granules) == [("LANDSAT-8", "OLI")]
 
 
 def test_default_bands_matches_prototype():
