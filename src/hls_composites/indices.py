@@ -22,6 +22,17 @@ from hls_composites.bands import Band
 BandData = Mapping[Band, np.ndarray]
 
 
+def _divide(numerator: np.ndarray, denominator: np.ndarray) -> np.ndarray:
+    """Divide without warning on a zero denominator.
+
+    A zero denominator yields inf (or nan for 0/0), which encoding turns into
+    the index's fill value, so an ill-conditioned pixel is already handled by
+    the time the result is stored.
+    """
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return numerator / denominator
+
+
 class Index:
     """Base class: a spectral index with its band requirements and encoding.
 
@@ -56,7 +67,7 @@ class EVI(Index):
 
     def __call__(self, data: BandData) -> np.ndarray:
         b, r, nir = data[Band.B], data[Band.R], data[Band.NIR]
-        return 2.5 * (nir - r) / (nir + 6 * r - 7.5 * b + 1)
+        return _divide(2.5 * (nir - r), nir + 6 * r - 7.5 * b + 1)
 
 
 class EVI2(Index):
@@ -67,7 +78,7 @@ class EVI2(Index):
 
     def __call__(self, data: BandData) -> np.ndarray:
         r, nir = data[Band.R], data[Band.NIR]
-        return 2.5 * (nir - r) / (nir + 2.4 * r + 1)
+        return _divide(2.5 * (nir - r), nir + 2.4 * r + 1)
 
 
 class NBR(Index):
@@ -78,7 +89,7 @@ class NBR(Index):
 
     def __call__(self, data: BandData) -> np.ndarray:
         nir, swir2 = data[Band.NIR], data[Band.SWIR2]
-        return (nir - swir2) / (nir + swir2)
+        return _divide(nir - swir2, nir + swir2)
 
 
 class NDVI(Index):
@@ -89,7 +100,7 @@ class NDVI(Index):
 
     def __call__(self, data: BandData) -> np.ndarray:
         r, nir = data[Band.R], data[Band.NIR]
-        return (nir - r) / (nir + r)
+        return _divide(nir - r, nir + r)
 
 
 ALL_INDICES: list[Index] = [
