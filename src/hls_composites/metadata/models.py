@@ -154,6 +154,8 @@ class GranuleMetadata:
         Granule outline as ``(longitude, latitude)`` corners.
     bbox : tuple of float
         ``(west, south, east, north)`` in degrees.
+    proj_bbox : tuple of float
+        ``(west, south, east, north)`` in the rasters' own projected CRS.
     epsg : int
         Projected CRS code of the written rasters.
     crs_name : str
@@ -186,6 +188,7 @@ class GranuleMetadata:
     produced_at: dt.datetime
     boundary: list[tuple[float, float]]
     bbox: tuple[float, float, float, float]
+    proj_bbox: tuple[float, float, float, float]
     epsg: int
     crs_name: str
     ulx: float
@@ -273,6 +276,7 @@ def granule_metadata(
         name = crs_name(src.crs)
         ulx, uly = src.transform.c, src.transform.f
         ncols, nrows = src.width, src.height
+        left, bottom, right, top = src.bounds
         west, south, east, north = transform_bounds(
             src.crs, "EPSG:4326", *src.bounds, densify_pts=_DENSIFY_POINTS
         )
@@ -288,6 +292,7 @@ def granule_metadata(
         produced_at=produced_at or dt.datetime.now(dt.UTC),
         boundary=[(west, north), (west, south), (east, south), (east, north)],
         bbox=(west, south, east, north),
+        proj_bbox=(left, bottom, right, top),
         epsg=int(epsg) if epsg is not None else 0,
         crs_name=name,
         ulx=ulx,

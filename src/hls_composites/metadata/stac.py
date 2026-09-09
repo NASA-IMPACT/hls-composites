@@ -13,6 +13,7 @@ from typing import Any
 import pystac
 import rasterio
 from pystac.extensions.mgrs import MgrsExtension
+from pystac.utils import datetime_to_str
 
 from hls_composites.crs import mgrs_fields
 from hls_composites.metadata.models import (
@@ -95,6 +96,9 @@ def to_stac_item(meta: GranuleMetadata) -> dict[str, Any]:
     item.properties["proj:code"] = f"EPSG:{meta.epsg}"
     item.properties["proj:shape"] = [meta.nrows, meta.ncols]
     item.properties["proj:transform"] = transform
+    item.properties["proj:bbox"] = list(meta.proj_bbox)
+
+    item.properties["created"] = datetime_to_str(meta.produced_at)
 
     # The scientific extension constrains sci:doi to a real DOI pattern, so
     # claiming one we do not have would make the item invalid. Declare the

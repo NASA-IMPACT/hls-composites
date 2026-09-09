@@ -15,6 +15,9 @@ from tests.metadata.conftest import (
     FEBRUARY,
     GRANULE_ID,
     NDVI_DESCRIPTION,
+    PIXEL,
+    ULX,
+    ULY,
 )
 
 PRODUCED_AT = dt.datetime(2026, 9, 3, 12, 0, 0, tzinfo=dt.UTC)
@@ -133,6 +136,20 @@ def test_each_band_reports_the_valid_percentage(item):
     for key in ("NDVI", "ValidCount"):
         stats = item["assets"][key]["bands"][0]["statistics"]
         assert stats["valid_percent"] == 75.0
+
+
+def test_item_records_when_it_was_produced(item):
+    assert item["properties"]["created"] == "2026-09-03T12:00:00Z"
+
+
+def test_item_carries_the_bbox_in_its_own_projection(item):
+    """A 4x4 grid at 30 m, so 120 m on a side from the upper-left corner."""
+    assert item["properties"]["proj:bbox"] == [
+        ULX,
+        ULY - 4 * PIXEL,
+        ULX + 4 * PIXEL,
+        ULY,
+    ]
 
 
 def test_item_validates_against_the_real_schemas(item):
