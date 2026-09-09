@@ -38,7 +38,7 @@ class GeoTiffCreationOptions(TypedDict, total=False):
     bigtiff: str
 
 
-DEFAULT_CREATION_OPTIONS: GeoTiffCreationOptions = {"compress": "LZW"}
+DEFAULT_CREATION_OPTIONS: GeoTiffCreationOptions = {"compress": "DEFLATE", "zlevel": 9}
 """GDAL GeoTIFF creation options applied when the caller passes none."""
 
 

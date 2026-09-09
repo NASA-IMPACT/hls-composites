@@ -58,8 +58,8 @@ def test_written_geotiff_is_internally_tiled_at_512(tmp_path):
         assert src.profile["tiled"] is True
         assert src.profile["blockxsize"] == 512
         assert src.profile["blockysize"] == 512
-        # Default creation options compress with LZW.
-        assert src.profile["compress"] == "lzw"
+        # Default creation options compress with DEFLATE, as the daily products do.
+        assert src.profile["compress"] == "deflate"
 
 
 def test_written_geotiff_round_trips_dtype_nodata_crs_and_scale(tmp_path):
