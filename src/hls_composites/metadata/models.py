@@ -12,11 +12,11 @@ import datetime as dt
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import numpy as np
 import rasterio
 from rasterio.warp import transform_bounds
 
-from hls_composites.composite import VALID_COUNT_FILL
+from hls_composites.composite import VALID_COUNT_FILL, spatial_coverage
+from hls_composites.crs import crs_name
 from hls_composites.indices import NDVI
 from hls_composites.io import composite_id
 from hls_composites.models import DateRange, Granule
@@ -59,10 +59,11 @@ PLATFORMS: list[tuple[str, str]] = [
     ("Sentinel-2A", "Sentinel-2 MSI"),
     ("Sentinel-2B", "Sentinel-2 MSI"),
 ]
-"""(platform, instrument) pairs a composite may draw observations from.
+"""(platform, instrument) pairs to fall back on when the inputs cannot be read.
 
-A composite mixes L30 and S30 sources, so unlike a daily granule it cannot
-name a single platform.
+A composite names the spacecraft that actually contributed (see
+`composite.read_platforms`); this is the collection-level set, and goes stale
+as the fleet changes, so it stands in only when nothing better is known.
 """
 
 CMR_STAC_BASE = "https://cmr.earthdata.nasa.gov/stac/LPCLOUD/collections"
@@ -111,6 +112,32 @@ def _provenance(granules: list[Granule]) -> list[InputGranule]:
 
 
 @dataclass(frozen=True)
+class AssetBand:
+    """One written COG's band, as read back from the file.
+
+    Parameters
+    ----------
+    name : str
+        Variable name, e.g. ``NDVI``, which is also the asset key.
+    description : str
+        The band's long name.
+    data_type : str
+        Storage type, spelled as STAC spells it, e.g. ``int16``.
+    nodata : float or None
+        Fill value, or None for a band that declares none.
+    scale : float or None
+        Factor converting stored values to physical units, or None for a
+        band stored in its own units.
+    """
+
+    name: str
+    description: str
+    data_type: str
+    nodata: float | None
+    scale: float | None
+
+
+@dataclass(frozen=True)
 class GranuleMetadata:
     """Everything the ECHO-10 and STAC serializers need.
 
@@ -128,6 +155,8 @@ class GranuleMetadata:
         Granule outline as ``(longitude, latitude)`` corners.
     bbox : tuple of float
         ``(west, south, east, north)`` in degrees.
+    proj_bbox : tuple of float
+        ``(west, south, east, north)`` in the rasters' own projected CRS.
     epsg : int
         Projected CRS code of the written rasters.
     crs_name : str
@@ -136,12 +165,16 @@ class GranuleMetadata:
         Upper-left corner in projected coordinates.
     ncols, nrows : int
         Raster width and height in pixels.
-    spatial_coverage : int
+    spatial_coverage : float
         Percentage of pixels carrying data, 0 to 100.
+    platforms : list of tuple of str
+        `(spacecraft, instrument)` pairs that contributed observations.
     scale_factor, add_offset : float
         Encoding of the index rasters.
     fill_value, qa_fill_value : int
         Fill values of the index rasters and of ``ValidCount``.
+    asset_bands : list of AssetBand
+        How each written COG describes its own band.
     assets : list of pathlib.Path
         The written GeoTIFFs, sorted by name.
     size_bytes : int
@@ -158,38 +191,48 @@ class GranuleMetadata:
     produced_at: dt.datetime
     boundary: list[tuple[float, float]]
     bbox: tuple[float, float, float, float]
+    proj_bbox: tuple[float, float, float, float]
     epsg: int
     crs_name: str
     ulx: float
     uly: float
     ncols: int
     nrows: int
-    spatial_coverage: int
+    spatial_coverage: float
+    platforms: list[tuple[str, str]]
     scale_factor: float
     add_offset: float
     fill_value: int
     qa_fill_value: int
     assets: list[Path]
+    asset_bands: list[AssetBand]
     size_bytes: int
     browse_image: Path
     inputs: list[InputGranule] = field(default_factory=list)
 
 
-def _crs_name(crs: rasterio.crs.CRS) -> str:
-    """The CRS's declared name, e.g. ``WGS 84 / UTM zone 14N``.
-
-    It is the first quoted string in the WKT, so no pyproj lookup is needed.
-    """
-    parts = crs.to_wkt().split('"')
-    return parts[1] if len(parts) > 1 else str(crs)
-
-
-def _spatial_coverage(valid_count_path: Path) -> int:
-    """Percentage of pixels with at least one contributing observation."""
+def _spatial_coverage(valid_count_path: Path) -> float:
+    """Read back the written `ValidCount` and measure what it covers."""
     with rasterio.open(valid_count_path) as src:
-        data = src.read(1)
-    covered = int(np.count_nonzero(data != VALID_COUNT_FILL))
-    return round(100 * covered / data.size)
+        return spatial_coverage(src.read(1))
+
+
+def _asset_bands(assets: list[Path]) -> list[AssetBand]:
+    """Read back how each written COG describes its own band."""
+    bands = []
+    for path in assets:
+        with rasterio.open(path) as src:
+            scale = src.scales[0]
+            bands.append(
+                AssetBand(
+                    name=path.stem.rsplit(".", 1)[-1],
+                    description=src.descriptions[0] or "",
+                    data_type=src.dtypes[0],
+                    nodata=src.nodata,
+                    scale=scale if scale != 1.0 else None,
+                )
+            )
+    return bands
 
 
 def granule_metadata(
@@ -199,6 +242,7 @@ def granule_metadata(
     browse_image: Path,
     inputs: list[Granule] | None = None,
     produced_at: dt.datetime | None = None,
+    platforms: list[tuple[str, str]] | None = None,
 ) -> GranuleMetadata:
     """Describe a written composite directory.
 
@@ -217,6 +261,9 @@ def granule_metadata(
         documents when not given.
     produced_at : datetime.datetime, optional
         Production time, by default the current UTC time.
+    platforms : list of tuple of str, optional
+        `(spacecraft, instrument)` pairs that contributed observations, from
+        `composite.read_platforms`. Falls back to `PLATFORMS` when not given.
 
     Returns
     -------
@@ -234,15 +281,16 @@ def granule_metadata(
 
     with rasterio.open(assets[0]) as src:
         epsg = src.crs.to_epsg()
-        crs_name = _crs_name(src.crs)
+        name = crs_name(src.crs)
         ulx, uly = src.transform.c, src.transform.f
         ncols, nrows = src.width, src.height
+        left, bottom, right, top = src.bounds
         west, south, east, north = transform_bounds(
             src.crs, "EPSG:4326", *src.bounds, densify_pts=_DENSIFY_POINTS
         )
 
     valid_count = granule_dir / f"{granule_dir.name}.ValidCount.tif"
-    coverage = _spatial_coverage(valid_count) if valid_count.exists() else 0
+    coverage = _spatial_coverage(valid_count) if valid_count.exists() else 0.0
 
     index = NDVI()
     return GranuleMetadata(
@@ -252,18 +300,21 @@ def granule_metadata(
         produced_at=produced_at or dt.datetime.now(dt.UTC),
         boundary=[(west, north), (west, south), (east, south), (east, north)],
         bbox=(west, south, east, north),
+        proj_bbox=(left, bottom, right, top),
         epsg=int(epsg) if epsg is not None else 0,
-        crs_name=crs_name,
+        crs_name=name,
         ulx=ulx,
         uly=uly,
         ncols=ncols,
         nrows=nrows,
         spatial_coverage=coverage,
+        platforms=platforms if platforms else PLATFORMS,
         scale_factor=index.scale_factor,
         add_offset=0.0,
         fill_value=index.fill_value,
         qa_fill_value=VALID_COUNT_FILL,
         assets=assets,
+        asset_bands=_asset_bands(assets),
         size_bytes=sum(path.stat().st_size for path in assets),
         browse_image=browse_image,
         inputs=_provenance(inputs or []),

@@ -1,4 +1,5 @@
 import datetime as dt
+from dataclasses import replace
 from xml.etree import ElementTree
 
 import pytest
@@ -98,6 +99,18 @@ def test_required_additional_attributes_are_present(root):
         "COMPOSITING_END_DATE",
     ]:
         assert attribute(root, name), f"{name} has no value"
+
+
+def test_spatial_coverage_is_rounded_to_whole_percent(granule_dir, browse_image):
+    """The daily products declare an integer percent, so a composite does too."""
+    meta = granule_metadata(
+        "14TPN", FEBRUARY, granule_dir, browse_image, produced_at=PRODUCED_AT
+    )
+    sparse = replace(meta, spatial_coverage=4.746)
+
+    root = ElementTree.fromstring(to_echo10(sparse))
+
+    assert attribute(root, "SPATIAL_COVERAGE") == ["5"]
 
 
 def test_attribute_values_come_from_the_model(root):

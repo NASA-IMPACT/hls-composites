@@ -18,6 +18,7 @@ def write_metadata(
     granule_dir: Path,
     browse_image: Path,
     inputs: list[Granule] | None = None,
+    platforms: list[tuple[str, str]] | None = None,
 ) -> list[Path]:
     """Describe the composite in `granule_dir` and write both documents there.
 
@@ -36,6 +37,8 @@ def write_metadata(
         The rendered browse image, referenced from both documents.
     inputs : list of Granule, optional
         The granules composited, recorded as provenance in both documents.
+    platforms : list of tuple of str, optional
+        `(spacecraft, instrument)` pairs that contributed observations.
 
     Returns
     -------
@@ -43,7 +46,12 @@ def write_metadata(
         The ECHO-10 document and the STAC item, in that order.
     """
     meta = granule_metadata(
-        tile_id, date_range, granule_dir, browse_image, inputs=inputs
+        tile_id,
+        date_range,
+        granule_dir,
+        browse_image,
+        inputs=inputs,
+        platforms=platforms,
     )
 
     xml_path = granule_dir / f"{meta.granule_id}{CMR_SUFFIX}"

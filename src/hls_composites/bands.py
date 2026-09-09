@@ -37,6 +37,8 @@ class BandSpec:
     name : str
         Logical band name, e.g. `"red"` or `"Fmask"`. Used as the
         output Dataset variable name.
+    long_name : str
+        Human-readable name, written as the output band's description.
     index_band : Band or None
         The spectral `Band` this asset supplies, e.g. `Band.NIR`. A
         reflectance band maps to exactly one spectral band; a QA band
@@ -67,6 +69,7 @@ class BandSpec:
     code: dict[Satellite, str] = field(compare=False)
     nodata: int
     dtype: type
+    long_name: str
     valid_range: tuple[int | None, int | None] = (None, None)
     scale: float = 1.0
 
@@ -87,6 +90,7 @@ RED = BandSpec(
     {"L30": "B04", "S30": "B04"},
     nodata=SR_FILL,
     dtype=np.int16,
+    long_name="Red surface reflectance",
     valid_range=(0, None),
     scale=SR_SCALE,
 )
@@ -96,6 +100,7 @@ GREEN = BandSpec(
     {"L30": "B03", "S30": "B03"},
     nodata=SR_FILL,
     dtype=np.int16,
+    long_name="Green surface reflectance",
     valid_range=(0, None),
     scale=SR_SCALE,
 )
@@ -105,6 +110,7 @@ BLUE = BandSpec(
     {"L30": "B02", "S30": "B02"},
     nodata=SR_FILL,
     dtype=np.int16,
+    long_name="Blue surface reflectance",
     valid_range=(0, None),
     scale=SR_SCALE,
 )
@@ -114,6 +120,7 @@ NIR_NARROW = BandSpec(
     {"L30": "B05", "S30": "B8A"},
     nodata=SR_FILL,
     dtype=np.int16,
+    long_name="Narrow near-infrared surface reflectance",
     valid_range=(0, None),
     scale=SR_SCALE,
 )
@@ -123,6 +130,7 @@ SWIR_1 = BandSpec(
     {"L30": "B06", "S30": "B11"},
     nodata=SR_FILL,
     dtype=np.int16,
+    long_name="Shortwave infrared 1 surface reflectance",
     valid_range=(0, None),
     scale=SR_SCALE,
 )
@@ -132,11 +140,17 @@ SWIR_2 = BandSpec(
     {"L30": "B07", "S30": "B12"},
     nodata=SR_FILL,
     dtype=np.int16,
+    long_name="Shortwave infrared 2 surface reflectance",
     valid_range=(0, None),
     scale=SR_SCALE,
 )
 FMASK = BandSpec(
-    "Fmask", None, {"L30": "Fmask", "S30": "Fmask"}, nodata=QA_FILL, dtype=np.uint8
+    "Fmask",
+    None,
+    {"L30": "Fmask", "S30": "Fmask"},
+    nodata=QA_FILL,
+    dtype=np.uint8,
+    long_name="Quality assessment bit mask",
 )
 
 DEFAULT_BANDS: list[BandSpec] = [RED, GREEN, BLUE, NIR_NARROW, SWIR_1, SWIR_2, FMASK]

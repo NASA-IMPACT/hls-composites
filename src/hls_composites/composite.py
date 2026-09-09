@@ -19,13 +19,16 @@ from hls_composites.bands import (
     BandSpec,
 )
 from hls_composites.indices import DEFAULT_INDICES, SELECTION_INDEX, Index
-from hls_composites.models import Granule
+from hls_composites.models import Granule, Satellite
 
 CompositeOutput = Literal["indexes", "bands"]
 """Which quantity a composite is built over: spectral indices or raw bands."""
 
 DOY_FILL = -1
 """Fill value for `DOY`. Julian days are 1..366, so a negative is unreachable."""
+
+DOY_LONG_NAME = "Day of year of the selected observation"
+"""`DOY`'s band description."""
 
 BROWSE_BANDS = ("R", "G", "B")
 """Bands composited for the browse image only; never written as products."""
@@ -35,6 +38,9 @@ VALID_COUNT_FILL = 255
 
 A tile-month holds nowhere near 255 granules, so no real count can reach it.
 """
+
+VALID_COUNT_LONG_NAME = "Count of valid observations"
+"""`ValidCount`'s band description."""
 
 QA_BIT = {
     "cirrus": 0,
@@ -65,6 +71,45 @@ def asset_url(granule: Granule, band: BandSpec) -> str:
     """
     band_code = band.code[granule.satellite]
     return f"{granule.path}.{band_code}.tif"
+
+
+SPACECRAFT_TAG = "SPACECRAFT_NAME"
+"""GeoTIFF tag naming the spacecraft an HLS granule was observed by."""
+
+INSTRUMENTS: dict[Satellite, str] = {"L30": "OLI", "S30": "Sentinel-2 MSI"}
+"""Instrument each HLS product is observed with. Stable, unlike the spacecraft."""
+
+
+def read_platforms(granules: list[Granule]) -> list[tuple[str, str]]:
+    """Which (spacecraft, instrument) pairs actually contributed observations.
+
+    The spacecraft is read from each input's own `SPACECRAFT_NAME`, since the
+    granule ID names only the product -- and the fleet outlives any list of it.
+    A granule whose tag is missing contributes nothing rather than a guess.
+
+    Parameters
+    ----------
+    granules : list of Granule
+        The granules composited.
+
+    Returns
+    -------
+    list of tuple of str
+        `(spacecraft, instrument)` pairs, sorted and deduplicated.
+
+    Notes
+    -----
+    Reads one asset header per granule, so it must run where the inputs are
+    still reachable.
+    """
+    found = set()
+    for granule in granules:
+        url = asset_url(granule, FMASK)
+        with rio.open(url) as src:
+            spacecraft = src.tags().get(SPACECRAFT_TAG)
+        if spacecraft:
+            found.add((spacecraft, INSTRUMENTS[granule.satellite]))
+    return sorted(found)
 
 
 def compute_out_of_range_mask(bands: dict[BandSpec, np.ndarray]) -> np.ndarray:
@@ -198,6 +243,49 @@ def to_reflectance(
     }
 
 
+def spatial_coverage(valid_count: np.ndarray) -> float:
+    """Percentage of pixels with at least one contributing observation.
+
+    Every product layer shares one mask, so this is the granule's coverage
+    whichever layer it is measured from.
+    """
+    covered = int(np.count_nonzero(valid_count != VALID_COUNT_FILL))
+    return 100 * covered / valid_count.size
+
+
+def _long_names(name: str, long_name: str) -> list[tuple[str, str]]:
+    """Pair a variable and its temporal standard deviation with their names."""
+    return [(name, long_name), (f"{name}_std", f"{long_name} standard deviation")]
+
+
+def _nan_reduce(reduction: Callable[..., np.ndarray], stack: np.ndarray) -> np.ndarray:
+    """Reduce over the time axis, leaving a pixel with no values NaN.
+
+    A pixel can be empty without being masked -- an index is NaN wherever its
+    denominator and numerator both vanish -- so emptiness is measured from the
+    stack rather than taken from a mask.
+
+    Parameters
+    ----------
+    reduction : callable
+        A NaN-aware reduction taking `axis`, e.g. `numpy.nanstd`.
+    stack : numpy.ndarray
+        Values shaped `(T, Y, X)`. Mutated at `stack[0]`, where the caller
+        already owns a copy.
+
+    Returns
+    -------
+    numpy.ndarray
+        The reduction over axis 0, NaN where the pixel had no values.
+    """
+    empty = np.all(np.isnan(stack), axis=0)
+    stack[0] = np.where(empty, 0.0, stack[0])
+    with np.errstate(all="ignore"):
+        result = reduction(stack, axis=0)
+    result[empty] = np.nan
+    return result
+
+
 def select_best_index(
     evi2: np.ndarray, bad_pixel_mask: np.ndarray, all_nan_mask: np.ndarray
 ) -> np.ndarray:
@@ -220,8 +308,8 @@ def select_best_index(
     """
     evi2_masked = evi2.copy()
     evi2_masked[bad_pixel_mask] = np.nan
+    target = _nan_reduce(np.nanmedian, evi2_masked)
     with np.errstate(all="ignore"):
-        target = np.nanmedian(evi2_masked, axis=0)
         diff = np.abs(evi2_masked - target)
     diff[np.isnan(diff)] = 1e9
     idx = np.argmin(diff, axis=0).astype(np.int16)
@@ -277,8 +365,7 @@ def band_std(
     """
     values_f = values.astype(np.float32).copy()
     values_f[bad_pixel_mask] = np.nan
-    with np.errstate(all="ignore"):
-        std = np.nanstd(values_f, axis=0)
+    std = _nan_reduce(np.nanstd, values_f)
     std[all_nan_mask] = 0
     return std
 
@@ -471,8 +558,7 @@ def _composite_block(
             per_timestep = to_reflectance(reflectance, index.bands)
             stack = np.where(bad, np.nan, index(per_timestep))
             value = np.take_along_axis(stack, best_idx[None, :, :], axis=0)[0]
-            with np.errstate(all="ignore"):
-                std = np.nanstd(stack, axis=0)
+            std = _nan_reduce(np.nanstd, stack)
             out[index.name] = _encode_index(value, index, all_nan)
             out[f"{index.name}_std"] = _encode_index(
                 std, index, all_nan, bounds=(0.0, index.valid_max - index.valid_min)
@@ -538,7 +624,7 @@ def read_band_with_retry[ReadResult](
     raise last_error
 
 
-BLOCK_SIZE = 512  # HLS COG native internal tiling; the spatial chunk we fuse over
+BLOCK_SIZE = 512  # spatial chunk we fuse over; 2x the inputs' 256 px tiling
 
 
 def _default_da_opener(url: str) -> xr.DataArray:
@@ -698,22 +784,26 @@ def build_composite(
         template=template,
     )
 
-    # Self-describe each var's nodata/scale so the writer stays generic. The
-    # aux layers share one fill and need no scale.
+    # Self-describe each var's nodata/scale/name so the writer stays generic.
+    # The aux layers share one fill and need no scale.
     if output == "bands":
         for band in bands:
             if not band.is_reflectance:
                 continue
-            for name in (band.name, f"{band.name}_std"):
+            for name, long_name in _long_names(band.name, band.long_name):
                 composite[name].attrs["nodata"] = band.nodata
                 composite[name].attrs["scale_factor"] = band.scale
+                composite[name].attrs["long_name"] = long_name
     else:
         for index in indices:
-            for name in (index.name, f"{index.name}_std"):
+            for name, long_name in _long_names(index.name, index.long_name):
                 composite[name].attrs["nodata"] = index.fill_value
                 composite[name].attrs["scale_factor"] = index.scale_factor
+                composite[name].attrs["long_name"] = long_name
         for name in BROWSE_BANDS:
             composite[name].attrs["nodata"] = SPEC_BY_BAND[Band[name]].nodata
     composite["ValidCount"].attrs["nodata"] = VALID_COUNT_FILL
+    composite["ValidCount"].attrs["long_name"] = VALID_COUNT_LONG_NAME
     composite["DOY"].attrs["nodata"] = DOY_FILL
+    composite["DOY"].attrs["long_name"] = DOY_LONG_NAME
     return composite

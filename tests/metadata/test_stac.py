@@ -6,10 +6,19 @@ import pytest
 from hls_composites.metadata.models import granule_metadata
 from hls_composites.metadata.stac import (
     PROJECTION_SCHEMA_URI,
+    RASTER_SCHEMA_URI,
     SCIENTIFIC_SCHEMA_URI,
     to_stac_item,
 )
-from tests.metadata.conftest import EPSG, FEBRUARY, GRANULE_ID
+from tests.metadata.conftest import (
+    EPSG,
+    FEBRUARY,
+    GRANULE_ID,
+    NDVI_DESCRIPTION,
+    PIXEL,
+    ULX,
+    ULY,
+)
 
 PRODUCED_AT = dt.datetime(2026, 9, 3, 12, 0, 0, tzinfo=dt.UTC)
 
@@ -91,6 +100,56 @@ def test_geometry_matches_the_boundary(item):
     # Five points: four corners, with the first repeated to close the ring.
     assert len(ring) == 5
     assert ring[0] == ring[-1]
+
+
+def test_each_data_asset_declares_its_band(item):
+    band = item["assets"]["NDVI"]["bands"][0]
+
+    assert band["name"] == "NDVI"
+    assert band["description"] == NDVI_DESCRIPTION
+    assert band["data_type"] == "int16"
+    assert band["nodata"] == -19999
+    assert band["raster:scale"] == 1e-4
+    assert band["raster:offset"] == 0.0
+
+
+def test_an_unscaled_band_declares_no_scale(item):
+    """ValidCount is a count, not an encoded physical quantity."""
+    band = item["assets"]["ValidCount"]["bands"][0]
+
+    assert band["data_type"] == "uint8"
+    assert band["nodata"] == 255
+    assert "raster:scale" not in band
+
+
+def test_the_raster_extension_is_declared_for_the_scaled_bands(item):
+    assert RASTER_SCHEMA_URI in item["stac_extensions"]
+
+
+def test_item_declares_its_spatial_coverage(item):
+    """12 of 16 pixels carry data."""
+    assert item["properties"]["hls:spatial_coverage"] == 75.0
+
+
+def test_each_band_reports_the_valid_percentage(item):
+    """Every layer shares one mask, so each band reports the granule's coverage."""
+    for key in ("NDVI", "ValidCount"):
+        stats = item["assets"][key]["bands"][0]["statistics"]
+        assert stats["valid_percent"] == 75.0
+
+
+def test_item_records_when_it_was_produced(item):
+    assert item["properties"]["created"] == "2026-09-03T12:00:00Z"
+
+
+def test_item_carries_the_bbox_in_its_own_projection(item):
+    """A 4x4 grid at 30 m, so 120 m on a side from the upper-left corner."""
+    assert item["properties"]["proj:bbox"] == [
+        ULX,
+        ULY - 4 * PIXEL,
+        ULX + 4 * PIXEL,
+        ULY,
+    ]
 
 
 def test_item_validates_against_the_real_schemas(item):

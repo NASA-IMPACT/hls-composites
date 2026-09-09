@@ -18,9 +18,16 @@ EPSG = 32614
 ULX = 300000.0
 ULY = 4600000.0
 PIXEL = 30.0
+NDVI_DESCRIPTION = "Normalized Difference Vegetation Index"
 
 
-def _write(path: Path, array: np.ndarray, nodata: float) -> None:
+def _write(
+    path: Path,
+    array: np.ndarray,
+    nodata: float,
+    description: str | None = None,
+    scale: float | None = None,
+) -> None:
     with rasterio.open(
         path,
         "w",
@@ -34,13 +41,19 @@ def _write(path: Path, array: np.ndarray, nodata: float) -> None:
         nodata=nodata,
     ) as dst:
         dst.write(array, 1)
+        if description is not None:
+            dst.set_band_description(1, description)
+        if scale is not None:
+            dst.scales = (scale,)
 
 
 @pytest.fixture
 def granule_dir(tmp_path: Path) -> Path:
     """A granule directory holding NDVI and ValidCount rasters.
 
-    ValidCount is 12 of 16 pixels valid, so SPATIAL_COVERAGE is 75.
+    NDVI carries the band description and scale a real write leaves behind;
+    ValidCount, like the real thing, carries neither. ValidCount is 12 of 16
+    pixels valid, so SPATIAL_COVERAGE is 75.
     """
     dest = tmp_path / GRANULE_ID
     dest.mkdir()
@@ -50,7 +63,13 @@ def granule_dir(tmp_path: Path) -> Path:
     _write(dest / f"{GRANULE_ID}.ValidCount.tif", valid, VALID_COUNT_FILL)
 
     ndvi = np.full((4, 4), 5000, dtype=np.int16)
-    _write(dest / f"{GRANULE_ID}.NDVI.tif", ndvi, -19999)
+    _write(
+        dest / f"{GRANULE_ID}.NDVI.tif",
+        ndvi,
+        -19999,
+        description=NDVI_DESCRIPTION,
+        scale=1e-4,
+    )
 
     return dest
 

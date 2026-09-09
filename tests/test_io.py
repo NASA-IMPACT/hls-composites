@@ -5,13 +5,19 @@ import rasterio
 import xarray as xr
 from rasterio.transform import from_origin
 
-from hls_composites.composite import BROWSE_BANDS
-from hls_composites.io import composite_id, write_rasters
+from hls_composites.composite import (
+    BROWSE_BANDS,
+    DOY_LONG_NAME,
+    VALID_COUNT_LONG_NAME,
+)
+from hls_composites.indices import NDVI
+from hls_composites.io import BLOCK_SIZE, composite_id, write_rasters
 from hls_composites.models import DateRange
 
 CRS = "EPSG:32614"
 TRANSFORM = from_origin(300000, 4500000, 30, 30)
-SIZE = 1024  # > BLOCK_SIZE(512) so 512 internal tiling is genuine (multiple tiles)
+SIZE = 1024  # > BLOCK_SIZE so the internal tiling and overviews are genuine
+NDVI_LONG_NAME = NDVI().long_name
 
 
 def _georef_dataset() -> xr.Dataset:
@@ -22,12 +28,16 @@ def _georef_dataset() -> xr.Dataset:
     ndvi = xr.DataArray(values, dims=("y", "x"), coords={"y": y, "x": x})
     ndvi.attrs["nodata"] = -19999
     ndvi.attrs["scale_factor"] = 1e-4
+    ndvi.attrs["long_name"] = NDVI_LONG_NAME
     ndvi_std = ndvi.copy()
+    ndvi_std.attrs["long_name"] = f"{NDVI_LONG_NAME} standard deviation"
     valid_count = xr.DataArray(
         (values % 4).astype(np.uint8), dims=("y", "x"), coords={"y": y, "x": x}
     )
     valid_count.attrs["nodata"] = 255
+    valid_count.attrs["long_name"] = VALID_COUNT_LONG_NAME
     doy = valid_count.copy()
+    doy.attrs["long_name"] = DOY_LONG_NAME
 
     ds = xr.Dataset(
         {"NDVI": ndvi, "NDVI_std": ndvi_std, "ValidCount": valid_count, "DOY": doy}
@@ -50,16 +60,55 @@ def test_write_rasters_creates_named_dir_and_files(tmp_path):
         assert (dest / f"{granule_id}.{var}.tif").exists()
 
 
-def test_written_geotiff_is_internally_tiled_at_512(tmp_path):
+def test_written_cog_matches_the_daily_products_layout(tmp_path):
     date_range = DateRange(start=date(2020, 7, 1), end=date(2020, 7, 31))
     dest = write_rasters(_georef_dataset(), tmp_path, "14TPN", date_range)
 
     with rasterio.open(dest / "HLS.M30.T14TPN.2020183.2020213.v2.0.NDVI.tif") as src:
         assert src.profile["tiled"] is True
-        assert src.profile["blockxsize"] == 512
-        assert src.profile["blockysize"] == 512
-        # Default creation options compress with LZW.
-        assert src.profile["compress"] == "lzw"
+        assert src.profile["blockxsize"] == BLOCK_SIZE
+        assert src.profile["blockysize"] == BLOCK_SIZE
+        # The daily products compress with DEFLATE and a horizontal predictor.
+        assert src.profile["compress"] == "deflate"
+        assert src.tags(ns="IMAGE_STRUCTURE")["PREDICTOR"] == "2"
+        # The COG driver halves down to the block size: 1024 px gives 2 and 4.
+        assert src.overviews(1) == [2, 4]
+
+
+def test_written_cog_is_self_describing(tmp_path):
+    date_range = DateRange(start=date(2020, 7, 1), end=date(2020, 7, 31))
+    dest = write_rasters(
+        _georef_dataset(), tmp_path, "14TPN", date_range, tags={"ACCODE": "test"}
+    )
+
+    granule_id = "HLS.M30.T14TPN.2020183.2020213.v2.0"
+    with rasterio.open(dest / f"{granule_id}.NDVI.tif") as src:
+        assert src.descriptions == (NDVI_LONG_NAME,)
+        tags = src.tags()
+
+    assert tags["long_name"] == NDVI_LONG_NAME
+    assert tags["scale_factor"] == "0.0001"
+    assert tags["add_offset"] == "0.0"
+    assert tags["_FillValue"] == "-19999"
+    assert tags["NROWS"] == str(SIZE)
+    assert tags["NCOLS"] == str(SIZE)
+    assert tags["ULX"] == "300000.0"
+    assert tags["ULY"] == "4500000.0"
+    assert tags["SPATIAL_RESOLUTION"] == "30.0"
+    assert tags["HORIZONTAL_CS_CODE"] == CRS
+    assert tags["HORIZONTAL_CS_NAME"] == "WGS 84 / UTM zone 14N"
+    # Caller-supplied tags land beside the derived ones.
+    assert tags["GRANULE_ID"] == granule_id
+    assert tags["ACCODE"] == "test"
+
+
+def test_std_band_is_described_as_a_standard_deviation(tmp_path):
+    date_range = DateRange(start=date(2020, 7, 1), end=date(2020, 7, 31))
+    dest = write_rasters(_georef_dataset(), tmp_path, "14TPN", date_range)
+
+    path = dest / "HLS.M30.T14TPN.2020183.2020213.v2.0.NDVI_std.tif"
+    with rasterio.open(path) as src:
+        assert src.descriptions == (f"{NDVI_LONG_NAME} standard deviation",)
 
 
 def test_written_geotiff_round_trips_dtype_nodata_crs_and_scale(tmp_path):

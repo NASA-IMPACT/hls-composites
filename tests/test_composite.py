@@ -1,9 +1,12 @@
 import dataclasses
+import warnings
 from datetime import date
 
 import numpy as np
 import pytest
+import rasterio
 import xarray as xr
+from rasterio.transform import from_origin
 
 from hls_composites.bands import (
     BLUE,
@@ -27,6 +30,7 @@ from hls_composites.composite import (
     VALID_COUNT_FILL,
     _composite_block,
     _encode_index,
+    _nan_reduce,
     asset_url,
     band_std,
     build_composite,
@@ -37,6 +41,7 @@ from hls_composites.composite import (
     compute_out_of_range_mask,
     observation_doy,
     read_band_with_retry,
+    read_platforms,
     select_best_index,
     to_reflectance,
     valid_count,
@@ -57,6 +62,94 @@ def _granule(satellite: str) -> Granule:
         satellite=satellite,
         date=date(2026, 5, 31),
     )
+
+
+def _fmask_asset(tmp_path, granule, spacecraft):
+    """Write the Fmask asset `read_platforms` looks for, tagged as HLS tags it."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    path = tmp_path / f"{granule.path.rsplit('/', 1)[-1]}.Fmask.tif"
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        height=1,
+        width=1,
+        count=1,
+        dtype="uint8",
+        crs="EPSG:32755",
+        transform=from_origin(300000, 5900000, 30, 30),
+    ) as dst:
+        dst.write(np.zeros((1, 1), dtype=np.uint8), 1)
+        if spacecraft is not None:
+            dst.update_tags(SPACECRAFT_NAME=spacecraft)
+    return dataclasses.replace(granule, path=str(path).removesuffix(".Fmask.tif"))
+
+
+class TestNanReduce:
+    """`_nan_reduce` must match the plain reduction, minus the warning."""
+
+    @pytest.mark.parametrize("reduction", [np.nanmedian, np.nanstd])
+    def test_a_pixel_with_no_values_stays_nan(self, reduction):
+        stack = np.array([[[np.nan, 1.0]], [[np.nan, 3.0]]])
+
+        result = _nan_reduce(reduction, stack)
+
+        assert np.isnan(result[0, 0])
+        assert not np.isnan(result[0, 1])
+
+    @pytest.mark.parametrize("reduction", [np.nanmedian, np.nanstd])
+    def test_it_matches_the_plain_reduction(self, reduction):
+        rng = np.random.default_rng(0)
+        stack = rng.normal(size=(4, 8, 8))
+        stack[rng.random(stack.shape) < 0.4] = np.nan
+        stack[:, :2, :] = np.nan  # some pixels empty outright
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            expected = reduction(stack.copy(), axis=0)
+
+        assert np.array_equal(
+            _nan_reduce(reduction, stack.copy()), expected, equal_nan=True
+        )
+
+    @pytest.mark.parametrize("reduction", [np.nanmedian, np.nanstd])
+    def test_it_does_not_warn(self, reduction, recwarn):
+        """An empty pixel is expected here, not something to report."""
+        _nan_reduce(reduction, np.full((3, 4, 4), np.nan))
+
+        assert [w for w in recwarn if issubclass(w.category, RuntimeWarning)] == []
+
+
+def test_read_platforms_names_the_spacecraft_the_inputs_carry(tmp_path):
+    """The granule ID names only the product, so the tag is the only source."""
+    granules = [
+        _fmask_asset(tmp_path / "a", _granule("S30"), "Sentinel-2C"),
+        _fmask_asset(tmp_path / "b", _granule("L30"), "LANDSAT-9"),
+    ]
+
+    assert read_platforms(granules) == [
+        ("LANDSAT-9", "OLI"),
+        ("Sentinel-2C", "Sentinel-2 MSI"),
+    ]
+
+
+def test_read_platforms_deduplicates_repeated_spacecraft(tmp_path):
+    granules = [
+        _fmask_asset(tmp_path / "a", _granule("S30"), "Sentinel-2B"),
+        _fmask_asset(tmp_path / "b", _granule("S30"), "Sentinel-2B"),
+    ]
+
+    assert read_platforms(granules) == [("Sentinel-2B", "Sentinel-2 MSI")]
+
+
+def test_read_platforms_omits_a_granule_that_names_no_spacecraft(tmp_path):
+    """Better to under-report than to guess which unit was flying."""
+    granules = [
+        _fmask_asset(tmp_path / "a", _granule("S30"), None),
+        _fmask_asset(tmp_path / "b", _granule("L30"), "LANDSAT-8"),
+    ]
+
+    assert read_platforms(granules) == [("LANDSAT-8", "OLI")]
 
 
 def test_default_bands_matches_prototype():
@@ -758,7 +851,7 @@ class TestIndexClipping:
         assert out[0, 0] == expected
 
     def test_out_of_range_values_never_change_sign(self):
-        """The prototype's failure mode: int16 wraparound flips the sign."""
+        """Unclipped int16 wraparound flips the sign."""
         raw = np.array([[6.2279, -6.9043, 7.2791, -5.4036]], dtype=np.float64)
         out = _encode_index(raw, EVI(), np.zeros(raw.shape, dtype=bool))
 

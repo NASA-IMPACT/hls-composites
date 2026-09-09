@@ -6,6 +6,7 @@ than printed, and the caller chooses where the product lands by passing a
 `Destination`.
 """
 
+import datetime as dt
 import tempfile
 from collections.abc import Callable
 from contextlib import ExitStack
@@ -20,10 +21,16 @@ from hls_composites.aws import (
     upload_directory,
 )
 from hls_composites.browse import write_browse_image
-from hls_composites.composite import CompositeOutput, build_composite
+from hls_composites.composite import (
+    CompositeOutput,
+    build_composite,
+    read_platforms,
+    spatial_coverage,
+)
 from hls_composites.discovery import scan_bucket_for_granules
 from hls_composites.io import composite_id, write_rasters
 from hls_composites.metadata.manifest import write_manifest
+from hls_composites.metadata.models import COMPOSITING_ALGORITHM
 from hls_composites.metadata.writer import write_metadata
 from hls_composites.models import DateRange
 
@@ -134,8 +141,21 @@ def create_composite(
             )
             composite = build_composite(granules, output=output)
             computed = composite.compute()
-            dest = Path(write_rasters(computed, work_dir, tile_id, date_range))
+            dest = Path(
+                write_rasters(
+                    computed,
+                    work_dir,
+                    tile_id,
+                    date_range,
+                    tags=granule_tags(
+                        date_range,
+                        spatial_coverage(computed["ValidCount"].to_numpy()),
+                    ),
+                )
+            )
             browse = write_browse_image(computed, dest / f"{dest.name}.jpg")
+            # Inside the credential scope: this reads the inputs' own headers.
+            platforms = read_platforms(granules)
 
         documents = write_metadata(
             tile_id,
@@ -143,6 +163,7 @@ def create_composite(
             dest,
             browse,
             inputs=granules,
+            platforms=platforms,
         )
         on_progress(f"Wrote {len(documents)} metadata documents")
 
@@ -161,6 +182,22 @@ def create_composite(
 
         on_progress(f"Wrote composite to {dest}")
         return CompositeResult(granule_id, len(granules))
+
+
+def granule_tags(date_range: DateRange, coverage: float) -> dict[str, str]:
+    """GeoTIFF tags describing how and when the composite was produced.
+
+    Named as the daily HLS products name their equivalents, so a consumer
+    reading both finds the processing time under the same key. `coverage`
+    is rounded to whole percent for the same reason.
+    """
+    return {
+        "COMPOSITING_ALGORITHM": COMPOSITING_ALGORITHM,
+        "COMPOSITING_START_DATE": date_range.start.isoformat(),
+        "COMPOSITING_END_DATE": date_range.end.isoformat(),
+        "HLS_PROCESSING_TIME": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "spatial_coverage": str(round(coverage)),
+    }
 
 
 def object_prefix(prefix: str, granule_id: str) -> str:
