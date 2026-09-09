@@ -19,6 +19,7 @@ from hls_composites.metadata.models import (
     BROWSE_DESCRIPTION,
     DOI,
     PLACEHOLDER,
+    AssetBand,
     GranuleMetadata,
 )
 
@@ -26,6 +27,9 @@ PROJECTION_SCHEMA_URI = (
     "https://stac-extensions.github.io/projection/v1.2.0/schema.json"
 )
 """The one projection extension version declaring both proj:epsg and proj:code."""
+
+RASTER_SCHEMA_URI = "https://stac-extensions.github.io/raster/v2.0.0/schema.json"
+"""Where `raster:scale` and `raster:offset` live, now that STAC 1.1 owns the rest."""
 
 SCIENTIFIC_SCHEMA_URI = (
     "https://stac-extensions.github.io/scientific/v1.0.0/schema.json"
@@ -35,6 +39,24 @@ SCIENTIFIC_SCHEMA_URI = (
 def _asset_key(path_name: str, granule_id: str) -> str:
     """Variable name from a file name, e.g. ``...v2.0.NDVI.tif`` -> ``NDVI``."""
     return path_name.removeprefix(f"{granule_id}.").removesuffix(".tif")
+
+
+def _band_object(band: AssetBand) -> dict[str, Any]:
+    """One STAC 1.1 band object: what the value means and how to decode it.
+
+    `nodata` and `data_type` are common metadata in STAC 1.1; `raster:scale`
+    stayed behind in the raster extension, which the item declares when any
+    band carries one.
+    """
+    obj: dict[str, Any] = {"name": band.name, "data_type": band.data_type}
+    if band.description:
+        obj["description"] = band.description
+    if band.nodata is not None:
+        obj["nodata"] = band.nodata
+    if band.scale is not None:
+        obj["raster:scale"] = band.scale
+        obj["raster:offset"] = 0.0
+    return obj
 
 
 def to_stac_item(meta: GranuleMetadata) -> dict[str, Any]:
@@ -98,13 +120,18 @@ def to_stac_item(meta: GranuleMetadata) -> dict[str, Any]:
             )
         )
 
+    bands = {band.name: band for band in meta.asset_bands}
+    if any(band.scale is not None for band in meta.asset_bands):
+        item.stac_extensions.append(RASTER_SCHEMA_URI)
     for path in meta.assets:
+        key = _asset_key(path.name, meta.granule_id)
         item.add_asset(
-            _asset_key(path.name, meta.granule_id),
+            key,
             pystac.Asset(
                 href=path.name,
                 media_type=pystac.MediaType.COG,
                 roles=["data"],
+                extra_fields={"bands": [_band_object(bands[key])]},
             ),
         )
 

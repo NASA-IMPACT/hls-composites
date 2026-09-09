@@ -112,6 +112,32 @@ def _provenance(granules: list[Granule]) -> list[InputGranule]:
 
 
 @dataclass(frozen=True)
+class AssetBand:
+    """One written COG's band, as read back from the file.
+
+    Parameters
+    ----------
+    name : str
+        Variable name, e.g. ``NDVI``, which is also the asset key.
+    description : str
+        The band's long name.
+    data_type : str
+        Storage type, spelled as STAC spells it, e.g. ``int16``.
+    nodata : float or None
+        Fill value, or None for a band that declares none.
+    scale : float or None
+        Factor converting stored values to physical units, or None for a
+        band stored in its own units.
+    """
+
+    name: str
+    description: str
+    data_type: str
+    nodata: float | None
+    scale: float | None
+
+
+@dataclass(frozen=True)
 class GranuleMetadata:
     """Everything the ECHO-10 and STAC serializers need.
 
@@ -143,6 +169,8 @@ class GranuleMetadata:
         Encoding of the index rasters.
     fill_value, qa_fill_value : int
         Fill values of the index rasters and of ``ValidCount``.
+    asset_bands : list of AssetBand
+        How each written COG describes its own band.
     assets : list of pathlib.Path
         The written GeoTIFFs, sorted by name.
     size_bytes : int
@@ -171,6 +199,7 @@ class GranuleMetadata:
     fill_value: int
     qa_fill_value: int
     assets: list[Path]
+    asset_bands: list[AssetBand]
     size_bytes: int
     browse_image: Path
     inputs: list[InputGranule] = field(default_factory=list)
@@ -182,6 +211,24 @@ def _spatial_coverage(valid_count_path: Path) -> int:
         data = src.read(1)
     covered = int(np.count_nonzero(data != VALID_COUNT_FILL))
     return round(100 * covered / data.size)
+
+
+def _asset_bands(assets: list[Path]) -> list[AssetBand]:
+    """Read back how each written COG describes its own band."""
+    bands = []
+    for path in assets:
+        with rasterio.open(path) as src:
+            scale = src.scales[0]
+            bands.append(
+                AssetBand(
+                    name=path.stem.rsplit(".", 1)[-1],
+                    description=src.descriptions[0] or "",
+                    data_type=src.dtypes[0],
+                    nodata=src.nodata,
+                    scale=scale if scale != 1.0 else None,
+                )
+            )
+    return bands
 
 
 def granule_metadata(
@@ -256,6 +303,7 @@ def granule_metadata(
         fill_value=index.fill_value,
         qa_fill_value=VALID_COUNT_FILL,
         assets=assets,
+        asset_bands=_asset_bands(assets),
         size_bytes=sum(path.stat().st_size for path in assets),
         browse_image=browse_image,
         inputs=_provenance(inputs or []),

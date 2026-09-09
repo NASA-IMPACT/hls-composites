@@ -6,10 +6,16 @@ import pytest
 from hls_composites.metadata.models import granule_metadata
 from hls_composites.metadata.stac import (
     PROJECTION_SCHEMA_URI,
+    RASTER_SCHEMA_URI,
     SCIENTIFIC_SCHEMA_URI,
     to_stac_item,
 )
-from tests.metadata.conftest import EPSG, FEBRUARY, GRANULE_ID
+from tests.metadata.conftest import (
+    EPSG,
+    FEBRUARY,
+    GRANULE_ID,
+    NDVI_DESCRIPTION,
+)
 
 PRODUCED_AT = dt.datetime(2026, 9, 3, 12, 0, 0, tzinfo=dt.UTC)
 
@@ -91,6 +97,30 @@ def test_geometry_matches_the_boundary(item):
     # Five points: four corners, with the first repeated to close the ring.
     assert len(ring) == 5
     assert ring[0] == ring[-1]
+
+
+def test_each_data_asset_declares_its_band(item):
+    band = item["assets"]["NDVI"]["bands"][0]
+
+    assert band["name"] == "NDVI"
+    assert band["description"] == NDVI_DESCRIPTION
+    assert band["data_type"] == "int16"
+    assert band["nodata"] == -19999
+    assert band["raster:scale"] == 1e-4
+    assert band["raster:offset"] == 0.0
+
+
+def test_an_unscaled_band_declares_no_scale(item):
+    """ValidCount is a count, not an encoded physical quantity."""
+    band = item["assets"]["ValidCount"]["bands"][0]
+
+    assert band["data_type"] == "uint8"
+    assert band["nodata"] == 255
+    assert "raster:scale" not in band
+
+
+def test_the_raster_extension_is_declared_for_the_scaled_bands(item):
+    assert RASTER_SCHEMA_URI in item["stac_extensions"]
 
 
 def test_item_validates_against_the_real_schemas(item):
