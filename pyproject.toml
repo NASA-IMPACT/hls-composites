@@ -81,9 +81,6 @@ ignore_missing_imports = true
 norecursedirs = ["cdk.out"]
 filterwarnings = [
     "error",
-    # Fully-masked pixels legitimately trip these in nanmedian/nanstd.
-    "ignore:All-NaN slice encountered:RuntimeWarning",
-    "ignore:Degrees of freedom <= 0:RuntimeWarning",
     # rasterio.transform.from_origin builds its Affine with `*`.
     "ignore:Use `@` matmul instead of `\\*` mul operator:PendingDeprecationWarning",
     # rasterio's DatasetReader.read reshapes its output buffer in place.

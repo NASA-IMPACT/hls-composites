@@ -258,6 +258,34 @@ def _long_names(name: str, long_name: str) -> list[tuple[str, str]]:
     return [(name, long_name), (f"{name}_std", f"{long_name} standard deviation")]
 
 
+def _nan_reduce(reduction: Callable[..., np.ndarray], stack: np.ndarray) -> np.ndarray:
+    """Reduce over the time axis, leaving a pixel with no values NaN.
+
+    A pixel can be empty without being masked -- an index is NaN wherever its
+    denominator and numerator both vanish -- so emptiness is measured from the
+    stack rather than taken from a mask.
+
+    Parameters
+    ----------
+    reduction : callable
+        A NaN-aware reduction taking `axis`, e.g. `numpy.nanstd`.
+    stack : numpy.ndarray
+        Values shaped `(T, Y, X)`. Mutated at `stack[0]`, where the caller
+        already owns a copy.
+
+    Returns
+    -------
+    numpy.ndarray
+        The reduction over axis 0, NaN where the pixel had no values.
+    """
+    empty = np.all(np.isnan(stack), axis=0)
+    stack[0] = np.where(empty, 0.0, stack[0])
+    with np.errstate(all="ignore"):
+        result = reduction(stack, axis=0)
+    result[empty] = np.nan
+    return result
+
+
 def select_best_index(
     evi2: np.ndarray, bad_pixel_mask: np.ndarray, all_nan_mask: np.ndarray
 ) -> np.ndarray:
@@ -280,8 +308,8 @@ def select_best_index(
     """
     evi2_masked = evi2.copy()
     evi2_masked[bad_pixel_mask] = np.nan
+    target = _nan_reduce(np.nanmedian, evi2_masked)
     with np.errstate(all="ignore"):
-        target = np.nanmedian(evi2_masked, axis=0)
         diff = np.abs(evi2_masked - target)
     diff[np.isnan(diff)] = 1e9
     idx = np.argmin(diff, axis=0).astype(np.int16)
@@ -337,8 +365,7 @@ def band_std(
     """
     values_f = values.astype(np.float32).copy()
     values_f[bad_pixel_mask] = np.nan
-    with np.errstate(all="ignore"):
-        std = np.nanstd(values_f, axis=0)
+    std = _nan_reduce(np.nanstd, values_f)
     std[all_nan_mask] = 0
     return std
 
@@ -531,8 +558,7 @@ def _composite_block(
             per_timestep = to_reflectance(reflectance, index.bands)
             stack = np.where(bad, np.nan, index(per_timestep))
             value = np.take_along_axis(stack, best_idx[None, :, :], axis=0)[0]
-            with np.errstate(all="ignore"):
-                std = np.nanstd(stack, axis=0)
+            std = _nan_reduce(np.nanstd, stack)
             out[index.name] = _encode_index(value, index, all_nan)
             out[f"{index.name}_std"] = _encode_index(
                 std, index, all_nan, bounds=(0.0, index.valid_max - index.valid_min)

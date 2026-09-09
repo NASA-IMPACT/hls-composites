@@ -1,4 +1,5 @@
 import dataclasses
+import warnings
 from datetime import date
 
 import numpy as np
@@ -29,6 +30,7 @@ from hls_composites.composite import (
     VALID_COUNT_FILL,
     _composite_block,
     _encode_index,
+    _nan_reduce,
     asset_url,
     band_std,
     build_composite,
@@ -81,6 +83,41 @@ def _fmask_asset(tmp_path, granule, spacecraft):
         if spacecraft is not None:
             dst.update_tags(SPACECRAFT_NAME=spacecraft)
     return dataclasses.replace(granule, path=str(path).removesuffix(".Fmask.tif"))
+
+
+class TestNanReduce:
+    """`_nan_reduce` must match the plain reduction, minus the warning."""
+
+    @pytest.mark.parametrize("reduction", [np.nanmedian, np.nanstd])
+    def test_a_pixel_with_no_values_stays_nan(self, reduction):
+        stack = np.array([[[np.nan, 1.0]], [[np.nan, 3.0]]])
+
+        result = _nan_reduce(reduction, stack)
+
+        assert np.isnan(result[0, 0])
+        assert not np.isnan(result[0, 1])
+
+    @pytest.mark.parametrize("reduction", [np.nanmedian, np.nanstd])
+    def test_it_matches_the_plain_reduction(self, reduction):
+        rng = np.random.default_rng(0)
+        stack = rng.normal(size=(4, 8, 8))
+        stack[rng.random(stack.shape) < 0.4] = np.nan
+        stack[:, :2, :] = np.nan  # some pixels empty outright
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            expected = reduction(stack.copy(), axis=0)
+
+        assert np.array_equal(
+            _nan_reduce(reduction, stack.copy()), expected, equal_nan=True
+        )
+
+    @pytest.mark.parametrize("reduction", [np.nanmedian, np.nanstd])
+    def test_it_does_not_warn(self, reduction, recwarn):
+        """An empty pixel is expected here, not something to report."""
+        _nan_reduce(reduction, np.full((3, 4, 4), np.nan))
+
+        assert [w for w in recwarn if issubclass(w.category, RuntimeWarning)] == []
 
 
 def test_read_platforms_names_the_spacecraft_the_inputs_carry(tmp_path):
