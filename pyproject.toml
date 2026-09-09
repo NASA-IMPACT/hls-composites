@@ -79,8 +79,15 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 norecursedirs = ["cdk.out"]
-# Fully-masked pixels legitimately trip these in nanmedian/nanstd.
 filterwarnings = [
+    "error",
+    # Fully-masked pixels legitimately trip these in nanmedian/nanstd.
     "ignore:All-NaN slice encountered:RuntimeWarning",
     "ignore:Degrees of freedom <= 0:RuntimeWarning",
+    # rasterio.transform.from_origin builds its Affine with `*`.
+    "ignore:Use `@` matmul instead of `\\*` mul operator:PendingDeprecationWarning",
+    # rasterio's DatasetReader.read reshapes its output buffer in place.
+    "ignore:Setting the shape on a NumPy array has been deprecated:DeprecationWarning",
+    # hls_manifest leaks the handle it loads its bundled JSON schema from.
+    "ignore:unclosed file .*hls_manifest:ResourceWarning",
 ]
