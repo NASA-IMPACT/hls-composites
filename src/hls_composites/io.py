@@ -1,13 +1,12 @@
-"""Write a composite Dataset to internally-tiled, compressed GeoTIFFs.
+"""Write a composite Dataset to Cloud Optimized GeoTIFFs.
 
-One GeoTIFF per data variable, named like the prototype's monthly product
-(`HLS.M30.T{tile}.{start_doy}.{end_doy}.v2.0`).
+One COG per data variable, named `HLS.M30.T{tile}.{start_doy}.{end_doy}.v2.0`.
 
 Each band's nodata and scale factor come from the variable's own attrs
 (set by `build_composite`), so this module needs no per-index knowledge.
 
 The GDAL creation options (compression, predictor, etc.) are a caller-overridable
-arguments.
+argument, defaulting to the daily HLS products' own settings.
 """
 
 from pathlib import Path
@@ -20,26 +19,46 @@ import xarray as xr
 from affine import Affine
 from rasterio.crs import CRS
 
-from hls_composites.composite import BLOCK_SIZE, BROWSE_BANDS
+from hls_composites.composite import BROWSE_BANDS
 from hls_composites.crs import corrected_grid
 from hls_composites.models import DateRange
 
 
-class GeoTiffCreationOptions(TypedDict, total=False):
-    """Common GDAL GeoTIFF creation options (all optional)."""
+class CogCreationOptions(TypedDict, total=False):
+    """Common GDAL COG driver creation options (all optional).
+
+    Spelled as the COG driver names them, which differs from the GTiff driver:
+    `level` rather than `zlevel`, `blocksize` rather than `blockxsize`.
+    """
 
     compress: str
     predictor: int
-    zlevel: int
-    zstd_level: int
     level: int
     num_threads: int | str
-    interleave: str
+    overview_resampling: str
+    overviews: str
     bigtiff: str
 
 
-DEFAULT_CREATION_OPTIONS: GeoTiffCreationOptions = {"compress": "DEFLATE", "zlevel": 9}
-"""GDAL GeoTIFF creation options applied when the caller passes none."""
+DEFAULT_CREATION_OPTIONS: CogCreationOptions = {
+    "compress": "DEFLATE",
+    "level": 9,
+    "predictor": 2,
+    "overview_resampling": "NEAREST",
+}
+"""GDAL COG creation options applied when the caller passes none.
+
+Matches the daily HLS products, so a composite decompresses and resamples its
+overviews the same way its inputs do.
+"""
+
+BLOCK_SIZE = 256
+"""Internal COG tile size, matching the daily HLS products.
+
+The COG driver derives the overview levels from this and the raster size: a
+3660 px HLS grid in 256 px tiles yields levels 2, 4, 8 and 16, as the daily
+products carry.
+"""
 
 
 def composite_id(tile: str, date_range: DateRange) -> str:
@@ -62,26 +81,24 @@ def composite_id(tile: str, date_range: DateRange) -> str:
     return f"HLS.M30.T{tile}.{start}.{end}.v2.0"
 
 
-def _write_geotiff(
+def _write_cog(
     path: Path,
     array: xr.DataArray,
     block_size: int,
-    creation_options: GeoTiffCreationOptions,
+    creation_options: CogCreationOptions,
     crs: CRS,
     transform: Affine,
 ) -> None:
     values = np.asarray(array.values)
     profile: dict[str, Any] = {
-        "driver": "GTiff",
+        "driver": "COG",
         "height": values.shape[0],
         "width": values.shape[1],
         "count": 1,
         "dtype": values.dtype,
         "crs": crs,
         "transform": transform,
-        "tiled": True,
-        "blockxsize": block_size,
-        "blockysize": block_size,
+        "blocksize": block_size,
         **creation_options,
     }
     nodata = array.attrs.get("nodata")
@@ -100,9 +117,9 @@ def write_rasters(
     tile: str,
     date_range: DateRange,
     block_size: int = BLOCK_SIZE,
-    creation_options: GeoTiffCreationOptions | None = None,
+    creation_options: CogCreationOptions | None = None,
 ) -> Path:
-    """Write each product variable of a computed composite to a GeoTIFF.
+    """Write each product variable of a computed composite to a COG.
 
     Takes an already-computed Dataset rather than computing one, so the same
     arrays can also feed the browse-image renderer without a second pass over
@@ -123,9 +140,9 @@ def write_rasters(
     date_range : DateRange
         The composite's date range (see `composite_id`).
     block_size : int, optional
-        Internal GeoTIFF tile size, by default `BLOCK_SIZE`.
-    creation_options : GeoTiffCreationOptions or None, optional
-        GDAL GeoTIFF creation options, by default `DEFAULT_CREATION_OPTIONS`.
+        Internal COG tile size, by default `BLOCK_SIZE`.
+    creation_options : CogCreationOptions or None, optional
+        GDAL COG creation options, by default `DEFAULT_CREATION_OPTIONS`.
 
     Returns
     -------
@@ -149,7 +166,7 @@ def write_rasters(
     for name, array in computed.data_vars.items():
         if name in BROWSE_BANDS:
             continue
-        _write_geotiff(
+        _write_cog(
             dest / f"{granule_id}.{name}.tif",
             array,
             block_size,

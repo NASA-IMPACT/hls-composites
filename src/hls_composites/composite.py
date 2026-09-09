@@ -538,7 +538,7 @@ def read_band_with_retry[ReadResult](
     raise last_error
 
 
-BLOCK_SIZE = 512  # HLS COG native internal tiling; the spatial chunk we fuse over
+BLOCK_SIZE = 512  # spatial chunk we fuse over; 2x the inputs' 256 px tiling
 
 
 def _default_da_opener(url: str) -> xr.DataArray:

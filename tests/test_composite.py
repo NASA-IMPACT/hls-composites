@@ -758,7 +758,7 @@ class TestIndexClipping:
         assert out[0, 0] == expected
 
     def test_out_of_range_values_never_change_sign(self):
-        """The prototype's failure mode: int16 wraparound flips the sign."""
+        """Unclipped int16 wraparound flips the sign."""
         raw = np.array([[6.2279, -6.9043, 7.2791, -5.4036]], dtype=np.float64)
         out = _encode_index(raw, EVI(), np.zeros(raw.shape, dtype=bool))
 

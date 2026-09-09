@@ -6,12 +6,12 @@ import xarray as xr
 from rasterio.transform import from_origin
 
 from hls_composites.composite import BROWSE_BANDS
-from hls_composites.io import composite_id, write_rasters
+from hls_composites.io import BLOCK_SIZE, composite_id, write_rasters
 from hls_composites.models import DateRange
 
 CRS = "EPSG:32614"
 TRANSFORM = from_origin(300000, 4500000, 30, 30)
-SIZE = 1024  # > BLOCK_SIZE(512) so 512 internal tiling is genuine (multiple tiles)
+SIZE = 1024  # > BLOCK_SIZE so the internal tiling and overviews are genuine
 
 
 def _georef_dataset() -> xr.Dataset:
@@ -50,16 +50,19 @@ def test_write_rasters_creates_named_dir_and_files(tmp_path):
         assert (dest / f"{granule_id}.{var}.tif").exists()
 
 
-def test_written_geotiff_is_internally_tiled_at_512(tmp_path):
+def test_written_cog_matches_the_daily_products_layout(tmp_path):
     date_range = DateRange(start=date(2020, 7, 1), end=date(2020, 7, 31))
     dest = write_rasters(_georef_dataset(), tmp_path, "14TPN", date_range)
 
     with rasterio.open(dest / "HLS.M30.T14TPN.2020183.2020213.v2.0.NDVI.tif") as src:
         assert src.profile["tiled"] is True
-        assert src.profile["blockxsize"] == 512
-        assert src.profile["blockysize"] == 512
-        # Default creation options compress with DEFLATE, as the daily products do.
+        assert src.profile["blockxsize"] == BLOCK_SIZE
+        assert src.profile["blockysize"] == BLOCK_SIZE
+        # The daily products compress with DEFLATE and a horizontal predictor.
         assert src.profile["compress"] == "deflate"
+        assert src.tags(ns="IMAGE_STRUCTURE")["PREDICTOR"] == "2"
+        # The COG driver halves down to the block size: 1024 px gives 2 and 4.
+        assert src.overviews(1) == [2, 4]
 
 
 def test_written_geotiff_round_trips_dtype_nodata_crs_and_scale(tmp_path):
