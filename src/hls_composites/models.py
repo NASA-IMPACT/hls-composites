@@ -114,3 +114,27 @@ class DateRange:
             the range themselves.
         """
         return [f"{year:04d}" for year in range(self.start.year, self.end.year + 1)]
+
+
+JOB_TYPE = "monthly-composite"
+"""The one job type this project submits, as recorded by the job monitor."""
+
+
+def composite_id(tile: str, date_range: DateRange) -> str:
+    """Build the monthly composite granule ID for `tile` over `date_range`.
+
+    Parameters
+    ----------
+    tile : str
+        MGRS tile ID, without the leading "T", e.g. `"14TPN"`.
+    date_range : DateRange
+        The composite's date range; encoded as `%Y%j` day-of-year bounds.
+
+    Returns
+    -------
+    str
+        e.g. `"HLS.M30.T14TPN.2020183.2020213.v2.0"`.
+    """
+    start = date_range.start.strftime("%Y%j")
+    end = date_range.end.strftime("%Y%j")
+    return f"HLS.M30.T{tile}.{start}.{end}.v2.0"

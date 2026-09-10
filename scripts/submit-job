@@ -15,10 +15,7 @@ import argparse
 import boto3
 from batch_event_job_monitor import JobGroup, submit_job
 
-from hls_composites.io import composite_id
-from hls_composites.models import DateRange
-
-JOB_TYPE = "monthly-composite"
+from hls_composites.models import JOB_TYPE, DateRange, composite_id
 
 
 def parse_args() -> argparse.Namespace:

@@ -22,7 +22,7 @@ from rasterio.crs import CRS
 
 from hls_composites.composite import BROWSE_BANDS
 from hls_composites.crs import corrected_grid, crs_name
-from hls_composites.models import DateRange
+from hls_composites.models import DateRange, composite_id
 
 
 class CogCreationOptions(TypedDict, total=False):
@@ -63,26 +63,6 @@ The COG driver derives the overview levels from this and the raster size: a
 3660 px HLS grid in 256 px tiles yields levels 2, 4, 8 and 16, as the daily
 products carry.
 """
-
-
-def composite_id(tile: str, date_range: DateRange) -> str:
-    """Build the monthly composite granule ID for `tile` over `date_range`.
-
-    Parameters
-    ----------
-    tile : str
-        MGRS tile ID, without the leading "T", e.g. `"14TPN"`.
-    date_range : DateRange
-        The composite's date range; encoded as `%Y%j` day-of-year bounds.
-
-    Returns
-    -------
-    str
-        e.g. `"HLS.M30.T14TPN.2020183.2020213.v2.0"`.
-    """
-    start = date_range.start.strftime("%Y%j")
-    end = date_range.end.strftime("%Y%j")
-    return f"HLS.M30.T{tile}.{start}.{end}.v2.0"
 
 
 def _write_cog(

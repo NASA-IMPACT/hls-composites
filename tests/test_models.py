@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from hls_composites.models import DateRange
+from hls_composites.models import JOB_TYPE, DateRange, composite_id
 
 
 def test_date_range_start_after_end_raises():
@@ -59,3 +59,20 @@ def test_key_prefixes_multi_year_window_returns_one_prefix_per_year():
     r = DateRange(start=date(2020, 6, 15), end=date(2021, 6, 14))
     assert r.key_prefixes() == ["2020", "2021"]
     _assert_full_coverage(r)
+
+
+def test_composite_id_follows_prototype_naming():
+    date_range = DateRange(date(2020, 7, 1), date(2020, 7, 31))
+    assert composite_id("14TPN", date_range) == "HLS.M30.T14TPN.2020183.2020213.v2.0"
+
+
+def test_job_type_is_the_monitored_job_type():
+    assert JOB_TYPE == "monthly-composite"
+
+
+def test_models_does_not_pull_in_geospatial_stack():
+    """The backfill Lambda imports this module and must not need GDAL."""
+    import sys
+
+    for module in ("rasterio", "rioxarray", "xarray", "dask"):
+        assert module not in sys.modules or "hls_composites.io" in sys.modules
