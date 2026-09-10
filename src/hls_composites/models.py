@@ -1,8 +1,10 @@
 """Shared data types for granule discovery and composite creation."""
 
+from __future__ import annotations
+
 import calendar
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from typing import Literal
 
 Satellite = Literal["L30", "S30"]
@@ -53,7 +55,7 @@ class DateRange:
             raise ValueError(f"start {self.start} is after end {self.end}")
 
     @classmethod
-    def for_month(cls, year_month: str) -> "DateRange":
+    def for_month(cls, year_month: str) -> DateRange:
         """Build the range covering one calendar month.
 
         Parameters
@@ -71,12 +73,7 @@ class DateRange:
         ValueError
             If `year_month` is not in ``YYYY-MM`` form.
         """
-        try:
-            first = datetime.strptime(year_month, "%Y-%m").date()
-        except ValueError as error:
-            raise ValueError(f"expected YYYY-MM, got {year_month!r}") from error
-        last_day = calendar.monthrange(first.year, first.month)[1]
-        return cls(first, first.replace(day=last_day))
+        return YearMonth.parse(year_month).date_range()
 
     def __contains__(self, d: date) -> bool:
         """Check whether a date falls within this range, inclusive.
@@ -114,6 +111,90 @@ class DateRange:
             the range themselves.
         """
         return [f"{year:04d}" for year in range(self.start.year, self.end.year + 1)]
+
+
+@dataclass(frozen=True, order=True)
+class YearMonth:
+    """One calendar month, ordered chronologically.
+
+    The canonical in-memory form of a composite's period. `YYYY-MM` strings
+    exist only at boundaries -- JSON, S3 keys, Batch parameters, CLI
+    arguments -- and are parsed back into this type on the way in.
+
+    Parameters
+    ----------
+    year : int
+        Four-digit year.
+    month : int
+        Month number, 1-12.
+
+    Raises
+    ------
+    ValueError
+        If `month` is outside 1-12.
+    """
+
+    year: int
+    month: int
+
+    def __post_init__(self) -> None:
+        if not 1 <= self.month <= 12:
+            raise ValueError(f"month out of range: {self.month}")
+
+    @classmethod
+    def parse(cls, text: str) -> YearMonth:
+        """Parse the canonical `YYYY-MM` form.
+
+        Deliberately stricter than `strptime("%Y-%m")`, which accepts an
+        unpadded `2020-7`. This value is an Athena partition key and part of
+        every entity ID, so a non-canonical spelling would produce a partition
+        the date projection cannot match.
+
+        Raises
+        ------
+        ValueError
+            If `text` is not exactly `YYYY-MM`.
+        """
+        parts = text.split("-")
+        if len(parts) != 2 or len(parts[0]) != 4 or len(parts[1]) != 2:
+            raise ValueError(f"expected YYYY-MM, got {text!r}")
+        try:
+            year, month = int(parts[0]), int(parts[1])
+        except ValueError:
+            raise ValueError(f"expected YYYY-MM, got {text!r}") from None
+        return cls(year, month)
+
+    @classmethod
+    def from_date(cls, day: date) -> YearMonth:
+        """The month containing `day`."""
+        return cls(day.year, day.month)
+
+    @classmethod
+    def from_ordinal(cls, ordinal: int) -> YearMonth:
+        """Invert `ordinal`."""
+        return cls(ordinal // 12, ordinal % 12 + 1)
+
+    def __str__(self) -> str:
+        return f"{self.year:04d}-{self.month:02d}"
+
+    @property
+    def ordinal(self) -> int:
+        """Months elapsed since year 0, so months can be counted and stepped."""
+        return self.year * 12 + self.month - 1
+
+    def next(self) -> YearMonth:
+        """The following month."""
+        return YearMonth.from_ordinal(self.ordinal + 1)
+
+    def previous(self) -> YearMonth:
+        """The preceding month."""
+        return YearMonth.from_ordinal(self.ordinal - 1)
+
+    def date_range(self) -> DateRange:
+        """The inclusive first-to-last-day range this month covers."""
+        first = date(self.year, self.month, 1)
+        last_day = calendar.monthrange(self.year, self.month)[1]
+        return DateRange(first, first.replace(day=last_day))
 
 
 JOB_TYPE = "monthly-composite"
