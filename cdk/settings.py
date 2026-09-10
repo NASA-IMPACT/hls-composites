@@ -76,6 +76,31 @@ class StackSettings(BaseSettings):
     # Start of the `year_month` partition projection range
     YEAR_MONTH_PARTITION_START: str = "2013-01"
 
+    # ----- Historical backfill
+    # Off by default: a backfill enabled at deploy time would start spending
+    # unattended.
+    SCHEDULE_BACKFILL: bool = False
+    BACKFILL_SCHEDULE_RATE_MINUTES: int = 5
+    # Units submitted per tick. Serial SubmitJob runs about 12/second.
+    BACKFILL_SUBMIT_COUNT: int = 2_000
+    # Queue-depth ceiling. Actual depth peaks near this plus BACKFILL_SUBMIT_COUNT,
+    # since the check happens once at the start of a tick.
+    BACKFILL_MAX_ACTIVE_JOBS: int = 5_000
+    BACKFILL_PLAN_KEY: str = "plans/backfill.json"
+    BACKFILL_TILE_LIST_KEY: str = "tiles.txt"
+
+    # ----- Forward processing
+    # On by default: forward processing is the steady state, and an idle feeder
+    # costs nothing until a month is opened.
+    SCHEDULE_FORWARD: bool = True
+    FORWARD_SCHEDULE_RATE_MINUTES: int = 5
+    FORWARD_SUBMIT_COUNT: int = 2_000
+    # Deliberately above BACKFILL_MAX_ACTIVE_JOBS. Both feeders share one queue
+    # and read the same depth, so ordering the ceilings is what keeps a saturated
+    # backfill from starving forward work.
+    FORWARD_MAX_ACTIVE_JOBS: int = 8_000
+    FORWARD_PLAN_KEY: str = "plans/forward.json"
+
     # ----- AWS Batch cluster
     # Reference to the SSM parameter describing the AMI _or_ the AMI ID itself.
     # If using SSM to resolve the AMI ID, prefix with `resolve:ssm:`.

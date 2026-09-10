@@ -9,7 +9,7 @@ from aws_cdk import (
 )
 from constructs import Construct
 
-from hls_constructs import BatchInfra, BatchJob, JobMonitoring
+from hls_constructs import BatchInfra, BatchJob, FeederFunction, JobMonitoring
 from settings import StackSettings
 
 
@@ -115,6 +115,40 @@ class HlsCompositesStack(Stack):
             database_name=settings.ATHENA_DATABASE_NAME,
             inventory_start_datetime=settings.ATHENA_INVENTORY_START_DATETIME,
             year_month_start=settings.YEAR_MONTH_PARTITION_START,
+        )
+
+        # ----------------------------------------------------------------------
+        # Job submission: one feeder per plan, sharing the queue
+        # ----------------------------------------------------------------------
+        self.backfill = FeederFunction(
+            self,
+            "Backfill",
+            processing_bucket=self.monitoring.processing_bucket.bucket,
+            job_queue=self.batch_infra.queue,
+            job_definition=self.processing_job.job_def,
+            job_definition_arn=self.processing_job.job_def_arn_without_revision,
+            tile_list_key=settings.BACKFILL_TILE_LIST_KEY,
+            plan_key=settings.BACKFILL_PLAN_KEY,
+            max_active_jobs=settings.BACKFILL_MAX_ACTIVE_JOBS,
+            submit_count=settings.BACKFILL_SUBMIT_COUNT,
+            schedule_rate_minutes=settings.BACKFILL_SCHEDULE_RATE_MINUTES,
+            enabled=settings.SCHEDULE_BACKFILL,
+        )
+
+        # Same tile list, its own plan and its own queue-depth ceiling.
+        self.forward = FeederFunction(
+            self,
+            "Forward",
+            processing_bucket=self.monitoring.processing_bucket.bucket,
+            job_queue=self.batch_infra.queue,
+            job_definition=self.processing_job.job_def,
+            job_definition_arn=self.processing_job.job_def_arn_without_revision,
+            tile_list_key=settings.BACKFILL_TILE_LIST_KEY,
+            plan_key=settings.FORWARD_PLAN_KEY,
+            max_active_jobs=settings.FORWARD_MAX_ACTIVE_JOBS,
+            submit_count=settings.FORWARD_SUBMIT_COUNT,
+            schedule_rate_minutes=settings.FORWARD_SCHEDULE_RATE_MINUTES,
+            enabled=settings.SCHEDULE_FORWARD,
         )
 
         CfnOutput(

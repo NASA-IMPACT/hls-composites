@@ -959,6 +959,7 @@ backfill = [
     { name = "boto3" },
 ]
 deploy = [
+    { name = "aws-cdk-aws-lambda-python-alpha" },
     { name = "aws-cdk-lib" },
     { name = "batch-event-job-monitor", extra = ["cdk"] },
     { name = "constructs" },
@@ -998,6 +999,7 @@ backfill = [
     { name = "boto3", specifier = ">=1.35.0" },
 ]
 deploy = [
+    { name = "aws-cdk-aws-lambda-python-alpha", specifier = ">=2.191.0a0" },
     { name = "aws-cdk-lib", specifier = ">=2.180.0" },
     { name = "batch-event-job-monitor", extras = ["cdk"], git = "https://github.com/NASA-IMPACT/batch-event-job-monitor.git?branch=feat%2Finit" },
     { name = "constructs", specifier = ">=10.4.2" },
