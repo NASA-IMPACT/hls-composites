@@ -534,8 +534,9 @@ def _composite_block(
     Returns
     -------
     dict of str to numpy.ndarray
-        One `(Y, X)` array per output variable, plus `ValidCount` (uint8,
-        filled with `VALID_COUNT_FILL`) and `DOY` (int16, filled with
+        One `(Y, X)` array per output variable, plus `Fmask` (uint8, the
+        selected observation's QA, filled with `QA_FILL`), `ValidCount`
+        (uint8, filled with `VALID_COUNT_FILL`) and `DOY` (int16, filled with
         `DOY_FILL`). For `"indexes"`, `{index.name}` and `{index.name}_std`
         (int16) per index; for `"bands"`, `{band.name}` and `{band.name}_std`
         (int16) per reflectance band, in `reflectance` order.
@@ -571,6 +572,11 @@ def _composite_block(
             selected = composite_band(reflectance[spec], best_idx, all_nan, spec.nodata)
             out[name] = selected.astype(spec.dtype)
 
+    # The QA of the observation each pixel was actually taken from, so a
+    # consumer can tell water/snow/aerosol pixels apart after compositing.
+    out[FMASK.name] = composite_band(fmask, best_idx, all_nan, FMASK.nodata).astype(
+        FMASK.dtype
+    )
     out["ValidCount"] = valid_count(bad)
     out["DOY"] = observation_doy(dates, best_idx, all_nan)
     return out
@@ -722,8 +728,8 @@ def build_composite(
     Returns
     -------
     xarray.Dataset
-        Lazy Dataset carrying the granules' CRS/transform, with `ValidCount`
-        (uint8) and `DOY` (int16) plus, per `output`, either `{index.name}`
+        Lazy Dataset carrying the granules' CRS/transform, with `Fmask`
+        (uint8), `ValidCount` (uint8) and `DOY` (int16) plus, per `output`, either `{index.name}`
         and `{index.name}_std` per index or `{band.name}` and
         `{band.name}_std` per reflectance band (int16 either way).
 
@@ -767,6 +773,7 @@ def build_composite(
             )
         for name in BROWSE_BANDS:
             template_vars[name] = xr.zeros_like(template2d, dtype=np.int16)
+    template_vars[FMASK.name] = xr.zeros_like(template2d, dtype=FMASK.dtype)
     template_vars["ValidCount"] = xr.zeros_like(template2d, dtype=np.uint8)
     template_vars["DOY"] = xr.zeros_like(template2d, dtype=np.int16)
     template = xr.Dataset(template_vars)
@@ -802,6 +809,8 @@ def build_composite(
                 composite[name].attrs["long_name"] = long_name
         for name in BROWSE_BANDS:
             composite[name].attrs["nodata"] = SPEC_BY_BAND[Band[name]].nodata
+    composite[FMASK.name].attrs["nodata"] = FMASK.nodata
+    composite[FMASK.name].attrs["long_name"] = FMASK.long_name
     composite["ValidCount"].attrs["nodata"] = VALID_COUNT_FILL
     composite["ValidCount"].attrs["long_name"] = VALID_COUNT_LONG_NAME
     composite["DOY"].attrs["nodata"] = DOY_FILL

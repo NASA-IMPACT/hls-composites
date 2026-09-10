@@ -464,7 +464,7 @@ def test_build_composite_lazy_reader_matches_block_kernel():
     assert result["NDVI"].values[0, 0] == 6000
     assert result["ValidCount"].values[1, 0] == VALID_COUNT_FILL
     assert "NDVI_std" in result.data_vars
-    assert "Fmask" not in result.data_vars  # output is index-based, not reflectance
+    assert "Fmask" in result.data_vars  # the QA layer ships in both output modes
     assert "SAVI" not in result.data_vars  # not in the default index set
 
 
@@ -556,6 +556,7 @@ def test_composite_block_defaults_to_the_default_indices_and_aux():
         "R",
         "G",
         "B",
+        "Fmask",
         "ValidCount",
         "DOY",
     ]
@@ -584,6 +585,7 @@ def test_composite_block_bands_output_emits_reflectance_values_and_std():
         "swir_1_std",
         "swir_2",
         "swir_2_std",
+        "Fmask",
         "ValidCount",
         "DOY",
     ]
@@ -650,7 +652,7 @@ def test_build_composite_bands_output_matches_block_kernel():
         np.testing.assert_array_equal(result[name].values, arr)
 
     assert "NDVI" not in result.data_vars
-    assert FMASK.name not in result.data_vars
+    assert FMASK.name in result.data_vars
 
 
 def test_build_composite_bands_output_carries_band_encoding_attrs():
@@ -909,3 +911,77 @@ def test_browse_bands_use_the_same_selection_as_the_indices():
     # DOY records which observation each pixel took; a browse band selected
     # from a different observation would be a different scene.
     assert out["R"].shape == out["DOY"].shape
+
+
+def _fmask_fixture():
+    """`_block_fixture` with a benign water bit on the selected timestep.
+
+    Water is not one of the bits `compute_basic_mask` excludes, so the
+    observation stays valid and its QA value has to survive into the output.
+    A fixture whose selected observations are all Fmask 0 could not tell a
+    real QA layer apart from an array of zeros.
+    """
+    reflectance, fmask, dates = _block_fixture()
+    fmask = fmask.copy()
+    fmask[1, 0, 0] |= 1 << QA_BIT["water"]
+    return reflectance, fmask, dates
+
+
+def test_composite_block_indexes_emits_fmask_of_selected_observation():
+    reflectance, fmask, dates = _fmask_fixture()
+    out = _composite_block(reflectance, fmask, dates)
+
+    # Pixel (0,0) is clear at all three, so selection lands on t1 -- the
+    # timestep carrying the water bit.
+    assert out["Fmask"][0, 0] == 1 << QA_BIT["water"]
+    assert out["Fmask"].dtype == np.uint8
+
+
+def test_composite_block_bands_emits_fmask_of_selected_observation():
+    reflectance, fmask, dates = _fmask_fixture()
+    out = _composite_block(reflectance, fmask, dates, output="bands")
+
+    assert out["Fmask"][0, 0] == 1 << QA_BIT["water"]
+    assert out["Fmask"].dtype == np.uint8
+
+
+def test_composite_block_fmask_is_filled_where_no_observation_is_valid():
+    reflectance, fmask, dates = _fmask_fixture()
+    out = _composite_block(reflectance, fmask, dates)
+
+    # Pixel (1,0) is cloudy at every timestep.
+    assert out["Fmask"][1, 0] == QA_FILL
+
+
+def test_composite_block_emits_no_fmask_std():
+    """Fmask values are QA bit flags; a standard deviation of them is meaningless."""
+    reflectance, fmask, dates = _fmask_fixture()
+
+    assert "Fmask_std" not in _composite_block(reflectance, fmask, dates)
+    assert "Fmask_std" not in _composite_block(
+        reflectance, fmask, dates, output="bands"
+    )
+
+
+def test_build_composite_carries_fmask_with_its_encoding():
+    reflectance, fmask, dates = _fmask_fixture()
+    granules = [
+        Granule(path=f"s3://bucket/g{i}", satellite="L30", date=d)
+        for i, d in enumerate(dates)
+    ]
+    band_data: dict[str, np.ndarray] = {}
+    for i, granule in enumerate(granules):
+        for spec in DEFAULT_BANDS:
+            arr = fmask[i] if spec is FMASK else reflectance[spec][i]
+            band_data[asset_url(granule, spec)] = arr
+
+    def fake_opener(url: str) -> xr.DataArray:
+        return xr.DataArray(band_data[url], dims=("y", "x"))
+
+    result = build_composite(granules, opener=fake_opener).compute()
+
+    assert result["Fmask"].dtype == np.uint8
+    assert result["Fmask"].attrs["nodata"] == QA_FILL
+    assert result["Fmask"].attrs["long_name"] == FMASK.long_name
+    assert "scale_factor" not in result["Fmask"].attrs
+    assert result["Fmask"].values[0, 0] == 1 << QA_BIT["water"]
