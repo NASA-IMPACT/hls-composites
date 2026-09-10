@@ -9,7 +9,13 @@ from aws_cdk import (
 )
 from constructs import Construct
 
-from hls_constructs import BatchInfra, BatchJob, FeederFunction, JobMonitoring
+from hls_constructs import (
+    BatchInfra,
+    BatchJob,
+    FeederFunction,
+    JobMonitoring,
+    MonthOpenerFunction,
+)
 from settings import StackSettings
 
 
@@ -149,6 +155,16 @@ class HlsCompositesStack(Stack):
             submit_count=settings.FORWARD_SUBMIT_COUNT,
             schedule_rate_minutes=settings.FORWARD_SCHEDULE_RATE_MINUTES,
             enabled=settings.SCHEDULE_FORWARD,
+        )
+
+        self.month_opener = MonthOpenerFunction(
+            self,
+            "MonthOpener",
+            processing_bucket=self.monitoring.processing_bucket.bucket,
+            forward_plan_key=settings.FORWARD_PLAN_KEY,
+            tile_list_key=settings.BACKFILL_TILE_LIST_KEY,
+            day_of_month=settings.MONTH_OPENER_DAY,
+            enabled=settings.SCHEDULE_MONTH_OPENER,
         )
 
         CfnOutput(

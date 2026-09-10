@@ -100,6 +100,11 @@ class StackSettings(BaseSettings):
     # backfill from starving forward work.
     FORWARD_MAX_ACTIVE_JOBS: int = 8_000
     FORWARD_PLAN_KEY: str = "plans/forward.json"
+    SCHEDULE_MONTH_OPENER: bool = True
+    # Day of the month the opener fires, composing the month that just ended.
+    # A lag, not a completeness guarantee: HLS withholds tiles above its cloud
+    # threshold, so no signal says a tile-month is finished.
+    MONTH_OPENER_DAY: int = 14
 
     # ----- AWS Batch cluster
     # Reference to the SSM parameter describing the AMI _or_ the AMI ID itself.

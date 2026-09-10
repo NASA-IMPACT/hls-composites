@@ -16,6 +16,7 @@ from hls_composites.backfill.state import (
     DEFAULT_PLAN_KEY,
     DEFAULT_TILE_LIST_KEY,
     PlanStore,
+    TileListMismatchError,
 )
 from hls_composites.backfill.submit import BackfillSubmitter, batch_client
 from hls_composites.models import YearMonth
@@ -56,14 +57,6 @@ class FeedResult:
             "year_month": None if self.year_month is None else str(self.year_month),
             "submitted_count": self.submitted_count,
         }
-
-
-class TileListMismatchError(RuntimeError):
-    """Raised when the tile list no longer matches the plan's `plan_version`.
-
-    Every cursor in the plan is an index into the tile list it was built
-    against, so a changed list silently reindexes unfinished segments.
-    """
 
 
 def backfill_feeder(

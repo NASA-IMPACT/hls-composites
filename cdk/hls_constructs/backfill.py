@@ -128,3 +128,73 @@ class FeederFunction(Construct):
 
         CfnOutput(self, "FeederFunctionName", value=self.function.function_name)
         CfnOutput(self, "FeederScheduleName", value=self.schedule.rule_name)
+
+
+class MonthOpenerFunction(Construct):
+    """Queues the month that just ended onto the forward plan, once a month."""
+
+    def __init__(
+        self,
+        scope: Construct,
+        construct_id: str,
+        *,
+        processing_bucket: s3.IBucket,
+        forward_plan_key: str,
+        tile_list_key: str,
+        day_of_month: int,
+        enabled: bool,
+        **kwargs: Any,
+    ) -> None:
+        """Wire the opener to the forward plan and a monthly schedule.
+
+        Parameters
+        ----------
+        day_of_month:
+            Day the opener fires, composing the month that just ended. This is
+            a lag, not a completeness check: HLS withholds tiles above its
+            cloud threshold, so nothing can assert a tile-month is finished.
+        enabled:
+            Whether the schedule starts enabled. Disable it during a known
+            upstream outage, so the affected month is never opened at all
+            rather than composited against partial data.
+        """
+        super().__init__(scope, construct_id, **kwargs)
+
+        self.function = lambda_python.PythonFunction(
+            self,
+            "Opener",
+            entry="src/",
+            index="month_opener/handler.py",
+            handler="handler",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            memory_size=256,
+            timeout=Duration.minutes(1),
+            reserved_concurrent_executions=1,
+            environment={
+                "PYTHONUNBUFFERED": "TRUE",
+                "PROCESSING_BUCKET_NAME": processing_bucket.bucket_name,
+                "FORWARD_PLAN_KEY": forward_plan_key,
+                "BACKFILL_TILE_LIST_KEY": tile_list_key,
+            },
+            bundling=lambda_python.BundlingOptions(
+                command_hooks=UvHooks(only_groups=[BACKFILL_GROUP]),
+                asset_excludes=LAMBDA_EXCLUDE,
+                volumes=UV_DOCKER_VOLUMES,
+            ),
+        )
+
+        # No Batch permissions: the opener only edits a plan, the feeder submits.
+        processing_bucket.grant_read_write(self.function)
+
+        self.schedule = events.Rule(
+            self,
+            "Schedule",
+            schedule=events.Schedule.cron(
+                minute="0", hour="6", day=str(day_of_month), month="*", year="*"
+            ),
+            enabled=enabled,
+        )
+        self.schedule.add_target(events_targets.LambdaFunction(self.function))
+
+        CfnOutput(self, "OpenerFunctionName", value=self.function.function_name)
+        CfnOutput(self, "OpenerScheduleName", value=self.schedule.rule_name)

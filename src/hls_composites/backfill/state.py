@@ -33,6 +33,14 @@ class PlanConflictError(RuntimeError):
     """Raised when a conditional write loses to a concurrent writer."""
 
 
+class TileListMismatchError(RuntimeError):
+    """Raised when a tile list no longer matches a plan's `plan_version`.
+
+    Every cursor in a plan is an index into the tile list it was built against,
+    so a changed list silently reindexes unfinished segments.
+    """
+
+
 @dataclass(frozen=True)
 class StoredPlan:
     """A plan together with the ETag it was read at."""
