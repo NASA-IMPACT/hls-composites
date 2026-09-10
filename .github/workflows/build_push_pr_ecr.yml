@@ -55,6 +55,8 @@ jobs:
         with:
           context: .
           platforms: ${{ env.BUILD_PLATFORM }}
+          build-args: |
+            BUILD_PLATFORM=${{ env.BUILD_PLATFORM }}
           load: true  # Puts the image in 'docker images' for the next step
           provenance: false
           sbom: false

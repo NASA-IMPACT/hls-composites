@@ -46,19 +46,22 @@ class UvHooks:
         self.only_groups = only_groups
 
     def before_bundling(self, input_dir: str, output_dir: str) -> list[str]:
+        # input_dir is a bind mount of the host's src/, so everything written
+        # there lands in the working tree. uv installs into the container's own
+        # filesystem, and the exported manifest is cleaned up afterwards.
         groups = " ".join(f"--only-group {group}" for group in self.only_groups)
         return [
-            f"python -m venv {input_dir}/uv_venv",
-            f". {input_dir}/uv_venv/bin/activate",
-            "pip install uv",
-            "export UV_CACHE_DIR=/tmp",
+            "pip install --quiet --target /tmp/uv-bin uv",
+            "export PATH=/tmp/uv-bin/bin:$PATH",
+            "export PYTHONPATH=/tmp/uv-bin",
+            "export UV_CACHE_DIR=/tmp/uv-cache",
             f"cd {UV_ASSET_REQUIREMENTS}",
             (
                 f"uv export {groups} --frozen --no-emit-project --no-dev "
                 f"--no-editable -o {input_dir}/requirements.txt"
             ),
-            f"rm -rf {input_dir}/uv_venv",
         ]
 
     def after_bundling(self, input_dir: str, output_dir: str) -> list[str]:
-        return []
+        """Remove the manifest this hook generated in the mounted source tree."""
+        return [f"rm -f {input_dir}/requirements.txt"]

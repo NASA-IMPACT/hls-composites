@@ -48,6 +48,8 @@ jobs:
         with:
           context: .
           platforms: ${{ env.BUILD_PLATFORM }}
+          build-args: |
+            BUILD_PLATFORM=${{ env.BUILD_PLATFORM }}
           push: true
           provenance: false
           sbom: false
