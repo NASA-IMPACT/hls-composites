@@ -77,8 +77,6 @@ class StackSettings(BaseSettings):
     YEAR_MONTH_PARTITION_START: str = "2013-01"
 
     # ----- Historical backfill
-    # Off by default: a backfill enabled at deploy time would start spending
-    # unattended.
     SCHEDULE_BACKFILL: bool = False
     BACKFILL_SCHEDULE_RATE_MINUTES: int = 5
     # Units submitted per tick. Serial SubmitJob runs about 12/second.
@@ -90,9 +88,7 @@ class StackSettings(BaseSettings):
     BACKFILL_TILE_LIST_KEY: str = "tiles.txt"
 
     # ----- Forward processing
-    # On by default: forward processing is the steady state, and an idle feeder
-    # costs nothing until a month is opened.
-    SCHEDULE_FORWARD: bool = True
+    SCHEDULE_FORWARD: bool = False
     FORWARD_SCHEDULE_RATE_MINUTES: int = 5
     FORWARD_SUBMIT_COUNT: int = 2_000
     # Deliberately above BACKFILL_MAX_ACTIVE_JOBS. Both feeders share one queue
