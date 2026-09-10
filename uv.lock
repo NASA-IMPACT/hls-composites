@@ -954,6 +954,10 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
+backfill = [
+    { name = "batch-event-job-monitor" },
+    { name = "boto3" },
+]
 deploy = [
     { name = "aws-cdk-lib" },
     { name = "batch-event-job-monitor", extra = ["cdk"] },
@@ -989,6 +993,10 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
+backfill = [
+    { name = "batch-event-job-monitor", git = "https://github.com/NASA-IMPACT/batch-event-job-monitor.git?branch=feat%2Finit" },
+    { name = "boto3", specifier = ">=1.35.0" },
+]
 deploy = [
     { name = "aws-cdk-lib", specifier = ">=2.180.0" },
     { name = "batch-event-job-monitor", extras = ["cdk"], git = "https://github.com/NASA-IMPACT/batch-event-job-monitor.git?branch=feat%2Finit" },
