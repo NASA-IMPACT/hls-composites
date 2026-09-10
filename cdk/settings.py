@@ -55,7 +55,7 @@ class StackSettings(BaseSettings):
     # ----- Composite processing
     PROCESSING_CONTAINER_ECR_URI: str
     PROCESSING_JOB_VCPU: int = 2
-    PROCESSING_JOB_MEMORY_MB: int = 8_000
+    PROCESSING_JOB_MEMORY_MB: int = 3_600
     PROCESSING_JOB_RETRY_ATTEMPTS: int = 3
     PROCESSING_JOB_TIMEOUT_MINUTES: int = 30
     # Custom log group (otherwise logs land in the catch-all AWS Batch log group)
