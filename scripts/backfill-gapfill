@@ -1,0 +1,164 @@
+#!/usr/bin/env -S uv run --group backfill --script
+# -*- mode: python -*-
+# vim: set ft=python:
+"""Queue a re-run of the tiles a month never finished.
+
+Diffs the month's expected tiles against what the job monitor recorded, writes
+the difference to S3, and appends a sparse segment so the re-run flows through
+the feeder's normal backpressure instead of flooding the queue.
+
+Queries the `records` table rather than the `state` view: `state` is built from
+an S3 Inventory delivered daily and lags, while `records` is written directly by
+the monitor Lambda and is current.
+
+    scripts/backfill-gapfill --bucket hls-composites-processing-dev \
+        --database hls_composites_dev --year-month 2016-06 \
+        --athena-output s3://hls-composites-processing-dev/athena-results/ --dry-run
+"""
+
+import argparse
+import time
+
+import boto3
+
+from hls_composites.backfill.plan import Segment
+from hls_composites.backfill.state import (
+    DEFAULT_PLAN_KEY,
+    DEFAULT_TILE_LIST_KEY,
+    PlanStore,
+)
+from hls_composites.models import JOB_TYPE, YearMonth
+
+SETTLED_STATES = ("SUCCESS", "FAILURE_NO_INPUTS")
+"""States needing no re-run. An empty tile-month is a real, final outcome."""
+
+QUERY = """
+SELECT DISTINCT input_entity_id
+FROM "{database}"."records"
+WHERE job_type = '{job_type}'
+  AND year_month = '{year_month}'
+  AND current_state IN ({settled})
+"""
+
+
+def year_month(text: str) -> YearMonth:
+    """argparse converter. Its name and error text are what a bad value prints."""
+    try:
+        return YearMonth.parse(text)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--bucket", required=True)
+    parser.add_argument("--database", required=True, help="Glue database name")
+    parser.add_argument("--year-month", type=year_month, required=True)
+    parser.add_argument("--athena-output", required=True, help="s3:// results prefix")
+    parser.add_argument("--plan-key", default=DEFAULT_PLAN_KEY)
+    parser.add_argument("--tile-list-key", default=DEFAULT_TILE_LIST_KEY)
+    parser.add_argument("--region", default="us-west-2")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Report the gap without editing the plan"
+    )
+    return parser.parse_args()
+
+
+def run_query(athena, sql: str, database: str, output: str) -> str:
+    execution = athena.start_query_execution(
+        QueryString=sql,
+        QueryExecutionContext={"Database": database},
+        ResultConfiguration={"OutputLocation": output},
+    )["QueryExecutionId"]
+
+    while True:
+        status = athena.get_query_execution(QueryExecutionId=execution)[
+            "QueryExecution"
+        ]["Status"]
+        if status["State"] in ("SUCCEEDED", "FAILED", "CANCELLED"):
+            break
+        time.sleep(2)
+
+    if status["State"] != "SUCCEEDED":
+        raise SystemExit(
+            f"Athena query {status['State']}: {status.get('StateChangeReason')}"
+        )
+    return execution
+
+
+def fetch_entity_ids(athena, execution: str) -> set[str]:
+    entity_ids: set[str] = set()
+    paginator = athena.get_paginator("get_query_results")
+    first_page = True
+    for page in paginator.paginate(QueryExecutionId=execution):
+        rows = page["ResultSet"]["Rows"]
+        if first_page:
+            # The first page repeats the column names as a row.
+            rows = rows[1:]
+            first_page = False
+        for row in rows:
+            value = row["Data"][0].get("VarCharValue")
+            if value:
+                entity_ids.add(value)
+    return entity_ids
+
+
+def main() -> None:
+    args = parse_args()
+    period = str(args.year_month)
+
+    s3 = boto3.client("s3", region_name=args.region)
+    athena = boto3.client("athena", region_name=args.region)
+    store = PlanStore(bucket=args.bucket, plan_key=args.plan_key, client=s3)
+
+    expected, _ = store.read_tile_list(args.tile_list_key)
+
+    sql = QUERY.format(
+        database=args.database,
+        job_type=JOB_TYPE,
+        year_month=period,
+        settled=", ".join(f"'{state}'" for state in SETTLED_STATES),
+    )
+    settled = fetch_entity_ids(
+        athena, run_query(athena, sql, args.database, args.athena_output)
+    )
+
+    suffix = f"_{period}"
+    settled_tiles = {
+        entity.removesuffix(suffix) for entity in settled if entity.endswith(suffix)
+    }
+    missing = [tile for tile in expected if tile not in settled_tiles]
+
+    print(
+        f"{period}: {len(settled_tiles):,} of {len(expected):,} tiles settled, "
+        f"{len(missing):,} to re-run"
+    )
+    if not missing:
+        return
+    if args.dry_run:
+        print("\n".join(missing[:20]))
+        if len(missing) > 20:
+            print(f"... and {len(missing) - 20:,} more")
+        return
+
+    subset_key = f"subsets/{period}-{int(time.time())}.txt"
+    s3.put_object(
+        Bucket=args.bucket, Key=subset_key, Body=("\n".join(missing) + "\n").encode()
+    )
+
+    stored = store.get()
+    stored.plan.segments.append(
+        Segment(
+            year_month=args.year_month,
+            submitted_count=0,
+            total_count=len(missing),
+            tiles_key=subset_key,
+        )
+    )
+    store.update(stored)
+
+    print(f"Wrote s3://{args.bucket}/{subset_key} and appended a sparse segment")
+
+
+if __name__ == "__main__":
+    main()

@@ -11,7 +11,7 @@ from hls_composites.composite import (
     VALID_COUNT_LONG_NAME,
 )
 from hls_composites.indices import NDVI
-from hls_composites.io import BLOCK_SIZE, composite_id, write_rasters
+from hls_composites.io import BLOCK_SIZE, write_rasters
 from hls_composites.models import DateRange
 
 CRS = "EPSG:32614"
@@ -43,11 +43,6 @@ def _georef_dataset() -> xr.Dataset:
         {"NDVI": ndvi, "NDVI_std": ndvi_std, "ValidCount": valid_count, "DOY": doy}
     )
     return ds.rio.write_crs(CRS)
-
-
-def test_composite_id_follows_prototype_naming():
-    date_range = DateRange(start=date(2020, 7, 1), end=date(2020, 7, 31))
-    assert composite_id("14TPN", date_range) == "HLS.M30.T14TPN.2020183.2020213.v2.0"
 
 
 def test_write_rasters_creates_named_dir_and_files(tmp_path):

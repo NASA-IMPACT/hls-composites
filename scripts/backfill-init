@@ -1,0 +1,110 @@
+#!/usr/bin/env -S uv run --group backfill --script
+# -*- mode: python -*-
+# vim: set ft=python:
+"""Write the initial backfill plan for a tile list already on the bucket.
+
+Upload the HLS land-tile list to the processing bucket first, then run this to
+record one unstarted segment per month against it. The list's sha256 becomes the
+plan's `plan_version`, which the feeder re-checks on every tick.
+
+Refuses to overwrite an existing plan; use `scripts/backfill-rewind` to change
+one that is already running.
+
+    aws s3 cp HLS.land.tiles.txt s3://hls-composites-processing-dev/tiles.txt
+    scripts/backfill-init --bucket hls-composites-processing-dev --month-end 2026-08
+"""
+
+import argparse
+
+import boto3
+
+from hls_composites.backfill.plan import (
+    DEFAULT_MONTH_START,
+    BackfillPlan,
+    months,
+)
+from hls_composites.backfill.state import (
+    DEFAULT_TILE_LIST_KEY,
+    PlanNotFoundError,
+    PlanStore,
+)
+from hls_composites.models import YearMonth
+
+
+def year_month(text: str) -> YearMonth:
+    """argparse converter. Its name and error text are what a bad value prints."""
+    try:
+        return YearMonth.parse(text)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--bucket", required=True, help="Processing bucket name")
+    parser.add_argument(
+        "--month-start",
+        type=year_month,
+        default=DEFAULT_MONTH_START,
+        help=f"First month, YYYY-MM (default {DEFAULT_MONTH_START})",
+    )
+    parser.add_argument(
+        "--month-end", type=year_month, required=True, help="Last month, YYYY-MM"
+    )
+    parser.add_argument(
+        "--tile-list-key",
+        default=DEFAULT_TILE_LIST_KEY,
+        help=f"Tile list key within --bucket (default {DEFAULT_TILE_LIST_KEY})",
+    )
+    parser.add_argument(
+        "--tile-list-source",
+        help="Where the list came from, recorded as provenance. Free text.",
+    )
+    parser.add_argument("--plan-key", help="Defaults to the store's plan key")
+    parser.add_argument("--region", default="us-west-2")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+
+    store_kwargs = {"plan_key": args.plan_key} if args.plan_key else {}
+    store = PlanStore(
+        bucket=args.bucket,
+        client=boto3.client("s3", region_name=args.region),
+        **store_kwargs,
+    )
+
+    try:
+        tiles, digest = store.read_tile_list(args.tile_list_key)
+    except PlanNotFoundError:
+        raise SystemExit(
+            f"no tile list at s3://{args.bucket}/{args.tile_list_key} -- "
+            f"upload it before initializing the plan"
+        ) from None
+
+    if not tiles:
+        raise SystemExit(f"tile list s3://{args.bucket}/{args.tile_list_key} is empty")
+
+    year_months = months(args.month_start, args.month_end)
+
+    plan = BackfillPlan.new(
+        plan_version=digest,
+        tile_list_source=args.tile_list_source
+        or f"s3://{args.bucket}/{args.tile_list_key}",
+        year_months=year_months,
+        tile_count=len(tiles),
+    )
+    store.create(plan)
+
+    print(f"Tile list s3://{args.bucket}/{args.tile_list_key}: {len(tiles)} tiles")
+    print(f"Plan version {plan.plan_version}")
+    print(
+        f"Wrote {len(year_months)} segments "
+        f"({year_months[0]} .. {year_months[-1]}), "
+        f"{len(tiles) * len(year_months):,} units total"
+    )
+
+
+if __name__ == "__main__":
+    main()

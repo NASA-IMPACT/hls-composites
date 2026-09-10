@@ -39,8 +39,16 @@ dev = [
 seed = [
     "earthaccess>=0.18.0",
 ]
+# What the backfill Lambdas bundle. Deliberately excludes the project's own
+# dependencies: rasterio and friends would blow the Lambda size limit, and the
+# handlers import only stdlib, boto3, and bejm.
+backfill = [
+    "boto3>=1.35.0",
+    "batch-event-job-monitor",
+]
 deploy = [
     "aws-cdk-lib>=2.180.0",
+    "aws-cdk-aws-lambda-python-alpha>=2.191.0a0",
     "batch-event-job-monitor[cdk]",
     "constructs>=10.4.2",
     "pydantic-settings>=2.8.0",

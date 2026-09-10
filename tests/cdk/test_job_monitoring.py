@@ -17,6 +17,15 @@ def resources_of(template: assertions.Template, type_: str) -> list[dict]:
     return list(template.find_resources(type_).values())
 
 
+def event_rules(template: assertions.Template) -> list[dict]:
+    """The monitor's event-pattern rules, excluding the feeders' schedules."""
+    return [
+        rule
+        for rule in resources_of(template, "AWS::Events::Rule")
+        if "EventPattern" in rule["Properties"]
+    ]
+
+
 def join_suffix(value: dict) -> str:
     """The trailing literal of an `Fn::Join`, e.g. `":*"` in `<arn>:*`."""
     _, parts = value["Fn::Join"]
@@ -123,7 +132,7 @@ def tracked_rule(template: assertions.Template) -> dict:
     """The rule for jobs carrying the bejm_* parameters."""
     (rule,) = [
         rule["Properties"]
-        for rule in resources_of(template, "AWS::Events::Rule")
+        for rule in event_rules(template)
         if "jobDefinition" in rule["Properties"]["EventPattern"]["detail"]
     ]
     return rule
@@ -157,7 +166,7 @@ def test_untracked_jobs_are_caught_by_their_own_rule(template):
     """A job on our queue without bejm_* params is routed, not dropped."""
     (untracked,) = [
         rule["Properties"]
-        for rule in resources_of(template, "AWS::Events::Rule")
+        for rule in event_rules(template)
         if "jobDefinition" not in rule["Properties"]["EventPattern"]["detail"]
     ]
 
@@ -176,7 +185,7 @@ def test_untracked_jobs_are_caught_by_their_own_rule(template):
 
 def test_both_rules_dead_letter_undeliverable_events(template):
     """An event the monitor Lambda cannot be handed is preserved, not lost."""
-    rules = resources_of(template, "AWS::Events::Rule")
+    rules = event_rules(template)
 
     assert len(rules) == 2
     for rule in rules:
@@ -189,7 +198,8 @@ def test_both_rules_dead_letter_undeliverable_events(template):
         assert all("DeadLetterConfig" in target for target in lambda_targets)
 
 
-def test_resubmit_lambda_may_submit_only_our_queue_and_job_definition(template):
+def test_every_submit_job_grant_is_scoped_to_our_queue_and_job_definition(template):
+    """Held by the resubmit Lambda and by each feeder; all must be scoped."""
     submits = [
         statement
         for policy in resources_of(template, "AWS::IAM::Policy")
@@ -197,11 +207,12 @@ def test_resubmit_lambda_may_submit_only_our_queue_and_job_definition(template):
         if "batch:SubmitJob" in statement["Action"]
     ]
 
-    (submit,) = submits
-    queue, job_definition = submit["Resource"]
-    assert "JobQueueArn" in json.dumps(queue)
-    # Any revision of our job definition family, and nothing else.
-    assert join_suffix(job_definition) == ":*"
+    assert submits
+    for submit in submits:
+        queue, job_definition = submit["Resource"]
+        assert "JobQueueArn" in json.dumps(queue)
+        # Any revision of our job definition family, and nothing else.
+        assert join_suffix(job_definition) == ":*"
 
 
 def test_glue_database_and_tables_exist(template):

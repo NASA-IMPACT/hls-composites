@@ -18,8 +18,7 @@ from rasterio.warp import transform_bounds
 from hls_composites.composite import VALID_COUNT_FILL, spatial_coverage
 from hls_composites.crs import crs_name
 from hls_composites.indices import NDVI
-from hls_composites.io import composite_id
-from hls_composites.models import DateRange, Granule
+from hls_composites.models import DateRange, Granule, composite_id
 
 PLACEHOLDER = "PLACEHOLDER"
 """Stands in for a value the DAAC has not assigned yet.

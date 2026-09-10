@@ -31,9 +31,7 @@ from batch_event_job_monitor_cdk import (
 from constructs import Construct
 
 from hls_composites.exit_codes import NO_INPUTS
-
-JOB_TYPE = "monthly-composite"
-"""The one job type this project submits."""
+from hls_composites.models import JOB_TYPE
 
 NO_INPUTS_STATE = "FAILURE_NO_INPUTS"
 """State recorded when a tile-month had no granules to composite."""

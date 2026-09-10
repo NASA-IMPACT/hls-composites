@@ -1,0 +1,128 @@
+#!/usr/bin/env -S uv run --group backfill --script
+# -*- mode: python -*-
+# vim: set ft=python:
+"""Inspect and edit a plan's cursors.
+
+Every edit is a conditional write against the ETag the plan was read at, so a
+concurrent feeder tick makes the edit fail rather than silently lose.
+
+Works on either plan; pass --plan-key for the forward one.
+
+    scripts/backfill-rewind --bucket hls-composites-processing-dev --show
+    scripts/backfill-rewind --bucket ... --year-month 2016-06 --reset
+    scripts/backfill-rewind --bucket ... --year-month 2016-06 --set-cursor 5000
+    scripts/backfill-rewind --bucket ... --year-month 2016-06 --skip
+    scripts/backfill-rewind --bucket ... --year-month 2016-06 --to-front
+"""
+
+import argparse
+
+import boto3
+
+from hls_composites.backfill.state import DEFAULT_PLAN_KEY, PlanStore
+from hls_composites.models import YearMonth
+
+
+def year_month(text: str) -> YearMonth:
+    """argparse converter. Its name and error text are what a bad value prints."""
+    try:
+        return YearMonth.parse(text)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--bucket", required=True)
+    parser.add_argument("--plan-key", default=DEFAULT_PLAN_KEY)
+    parser.add_argument("--region", default="us-west-2")
+    parser.add_argument(
+        "--show", action="store_true", help="Print every segment, including unstarted"
+    )
+    parser.add_argument("--year-month", type=year_month, help="Segment to edit")
+
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument(
+        "--reset", action="store_true", help="Re-run the whole segment from 0"
+    )
+    action.add_argument("--set-cursor", type=int, help="Resume from this offset")
+    action.add_argument(
+        "--skip", action="store_true", help="Mark the segment fully submitted"
+    )
+    action.add_argument(
+        "--to-front", action="store_true", help="Move the segment to the head"
+    )
+    return parser.parse_args()
+
+
+def report(plan, show_all: bool) -> None:
+    done = sum(s.submitted_count for s in plan.segments)
+    total = sum(s.total_count for s in plan.segments)
+    print(f"plan_version: {plan.plan_version}")
+    print(f"source:       {plan.tile_list_source}")
+    print(f"progress:     {done:,} / {total:,} units submitted")
+    for segment in plan.segments:
+        if not show_all and segment.submitted_count == 0:
+            continue
+        marker = "done" if segment.is_complete else "    "
+        sparse = f" [{segment.tiles_key}]" if segment.tiles_key else ""
+        print(
+            f"  {marker} {segment.year_month} "
+            f"{segment.submitted_count:,}/{segment.total_count:,}{sparse}"
+        )
+
+
+def main() -> None:
+    args = parse_args()
+    store = PlanStore(
+        bucket=args.bucket,
+        plan_key=args.plan_key,
+        client=boto3.client("s3", region_name=args.region),
+    )
+    stored = store.get()
+    plan = stored.plan
+
+    if args.year_month is None:
+        report(plan, show_all=args.show)
+        return
+
+    matches = [s for s in plan.segments if s.year_month == args.year_month]
+    if not matches:
+        raise SystemExit(f"no segment for {args.year_month} in {args.plan_key}")
+    if len(matches) > 1:
+        raise SystemExit(
+            f"{len(matches)} segments for {args.year_month}; gap-fill adds sparse "
+            f"segments alongside the dense one, so edit the plan by hand"
+        )
+    segment = matches[0]
+    before = segment.submitted_count
+
+    if args.reset:
+        segment.submitted_count = 0
+    elif args.set_cursor is not None:
+        if not 0 <= args.set_cursor <= segment.total_count:
+            raise SystemExit(f"cursor must be between 0 and {segment.total_count}")
+        segment.submitted_count = args.set_cursor
+    elif args.skip:
+        segment.submitted_count = segment.total_count
+    elif args.to_front:
+        plan.segments.remove(segment)
+        plan.segments.insert(0, segment)
+    else:
+        raise SystemExit(
+            "nothing to do; pass one of --reset/--set-cursor/--skip/--to-front"
+        )
+
+    store.update(stored)
+
+    if args.to_front:
+        print(f"{args.year_month} moved to the head of {args.plan_key}")
+    else:
+        print(
+            f"{args.year_month}: {before:,} -> {segment.submitted_count:,} "
+            f"of {segment.total_count:,}"
+        )
+
+
+if __name__ == "__main__":
+    main()

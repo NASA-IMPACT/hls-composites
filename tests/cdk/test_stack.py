@@ -42,7 +42,9 @@ def build_settings(**overrides) -> StackSettings:
 
 
 def synth(settings: StackSettings) -> assertions.Template:
-    app = App()
+    # Skip PythonFunction's Docker bundling: these tests assert on the template,
+    # not on bundle contents, and bundling every synth would need Docker running.
+    app = App(context={"aws:cdk:bundling-stacks": []})
     stack = HlsCompositesStack(
         app,
         settings.STACK_NAME,

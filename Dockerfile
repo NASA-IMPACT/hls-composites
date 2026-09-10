@@ -1,6 +1,11 @@
+# AWS Batch runs this image on x86_64 instances, so it must be amd64 even when
+# built on an arm64 machine. Override for a native local image:
+#   docker build --build-arg BUILD_PLATFORM=linux/arm64 .
+ARG BUILD_PLATFORM=linux/amd64
+
 # build: common base shared by prod and dev -- system libs, locked runtime
 # dependencies, and the installed project. Nothing dev-only lives here.
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS build
+FROM --platform=${BUILD_PLATFORM} ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS build
 
 WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1 \

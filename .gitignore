@@ -21,3 +21,6 @@ out/
 # CDK
 cdk.context.json
 cdk.out/
+# Generated into the bundling mount from uv.lock; removed after a successful
+# bundle, left behind by a failed one.
+src/requirements.txt

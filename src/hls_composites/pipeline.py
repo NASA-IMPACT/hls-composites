@@ -28,11 +28,11 @@ from hls_composites.composite import (
     spatial_coverage,
 )
 from hls_composites.discovery import scan_bucket_for_granules
-from hls_composites.io import composite_id, write_rasters
+from hls_composites.io import write_rasters
 from hls_composites.metadata.manifest import write_manifest
 from hls_composites.metadata.models import COMPOSITING_ALGORITHM
 from hls_composites.metadata.writer import write_metadata
-from hls_composites.models import DateRange
+from hls_composites.models import DateRange, composite_id
 
 ProgressCallback = Callable[[str], None]
 

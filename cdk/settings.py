@@ -55,7 +55,7 @@ class StackSettings(BaseSettings):
     # ----- Composite processing
     PROCESSING_CONTAINER_ECR_URI: str
     PROCESSING_JOB_VCPU: int = 2
-    PROCESSING_JOB_MEMORY_MB: int = 8_000
+    PROCESSING_JOB_MEMORY_MB: int = 3_600
     PROCESSING_JOB_RETRY_ATTEMPTS: int = 3
     PROCESSING_JOB_TIMEOUT_MINUTES: int = 30
     # Custom log group (otherwise logs land in the catch-all AWS Batch log group)
@@ -75,6 +75,38 @@ class StackSettings(BaseSettings):
     ATHENA_INVENTORY_START_DATETIME: dt.datetime
     # Start of the `year_month` partition projection range
     YEAR_MONTH_PARTITION_START: str = "2013-01"
+
+    # ----- Historical backfill
+    SCHEDULE_BACKFILL: bool = False
+    BACKFILL_SCHEDULE_RATE_MINUTES: int = 5
+    # Units submitted per tick. Serial SubmitJob runs about 12/second.
+    BACKFILL_SUBMIT_COUNT: int = 2_000
+    # Queue-depth ceiling. Actual depth peaks near this plus BACKFILL_SUBMIT_COUNT,
+    # since the check happens once at the start of a tick.
+    BACKFILL_MAX_ACTIVE_JOBS: int = 5_000
+    BACKFILL_PLAN_KEY: str = "plans/backfill.json"
+    # Frozen for the life of the historical run: its cursors are positional
+    # indices into this list. Kept separate from the live list so that revising
+    # the live one does not halt a backfill that has weeks left to run.
+    BACKFILL_TILE_LIST_KEY: str = "tiles/backfill.txt"
+
+    # ----- Forward processing
+    SCHEDULE_FORWARD: bool = False
+    FORWARD_SCHEDULE_RATE_MINUTES: int = 5
+    FORWARD_SUBMIT_COUNT: int = 2_000
+    # Deliberately above BACKFILL_MAX_ACTIVE_JOBS. Both feeders share one queue
+    # and read the same depth, so ordering the ceilings is what keeps a saturated
+    # backfill from starving forward work.
+    FORWARD_MAX_ACTIVE_JOBS: int = 8_000
+    FORWARD_PLAN_KEY: str = "plans/forward.json"
+    # The live list, edited by hand as the tile set changes. The opener reads it
+    # and snapshots a frozen copy per month, so it stays editable.
+    FORWARD_TILE_LIST_KEY: str = "tiles/current.txt"
+    SCHEDULE_MONTH_OPENER: bool = True
+    # Day of the month the opener fires, composing the month that just ended.
+    # A lag, not a completeness guarantee: HLS withholds tiles above its cloud
+    # threshold, so no signal says a tile-month is finished.
+    MONTH_OPENER_DAY: int = 14
 
     # ----- AWS Batch cluster
     # Reference to the SSM parameter describing the AMI _or_ the AMI ID itself.
