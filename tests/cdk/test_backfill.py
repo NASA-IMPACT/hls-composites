@@ -149,10 +149,11 @@ def opener_function(template: assertions.Template) -> dict:
 
 
 def test_month_opener_runs_on_a_monthly_cron(template):
+    """The configured day drives the cron; the value itself is tunable."""
     expressions = [rule["ScheduleExpression"] for rule in schedule_rules(template)]
     crons = [e for e in expressions if e.startswith("cron(")]
 
-    assert crons == ["cron(0 6 10 * ? *)"]
+    assert crons == [f"cron(0 6 {build_settings().MONTH_OPENER_DAY} * ? *)"]
 
 
 def test_month_opener_day_is_configurable(template):
