@@ -4,8 +4,8 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from hls_composites.backfill.plan import BackfillPlan, Segment, tile_list_digest
-from hls_composites.backfill.state import PlanStore, TileListMismatchError
+from hls_composites.backfill.plan import tile_list_digest
+from hls_composites.backfill.state import PlanStore
 from hls_composites.models import YearMonth
 from month_opener.handler import open_month, target_month
 
@@ -64,13 +64,16 @@ def test_creates_the_forward_plan_on_first_run(store):
     assert [s.year_month for s in plan.segments] == [AUGUST]
 
 
-def test_opened_segment_covers_every_tile(store):
+def test_opened_segment_covers_every_tile(store, s3):
     open_for(store, AUGUST)
 
     segment = store.get().plan.segments[0]
     assert segment.total_count == 3
     assert segment.submitted_count == 0
-    assert segment.tiles_key is None
+    # Its own frozen copy, so a later edit to the live list cannot reindex it.
+    assert segment.tiles_key == "tiles/2026-08.txt"
+    snapshot = s3.get_object(Bucket=BUCKET, Key=segment.tiles_key)["Body"].read()
+    assert snapshot == TILES
 
 
 def test_opening_the_same_month_twice_is_a_no_op(store):
@@ -102,19 +105,23 @@ def test_does_not_disturb_an_unfinished_earlier_month(store):
     assert store.get().plan.next_segment().year_month == JULY
 
 
-def test_refuses_to_extend_a_plan_built_on_a_different_tile_list(store):
-    store.create(
-        BackfillPlan(
-            plan_version="sha256:stale",
-            tile_list_source="src",
-            segments=[Segment(JULY, 3, 3)],
-        )
-    )
+def test_a_revised_tile_list_applies_to_the_next_month_only(store, s3):
+    """Forward processing runs indefinitely, so the live list must stay editable.
 
-    with pytest.raises(TileListMismatchError, match="sha256:stale"):
-        open_for(store, AUGUST)
+    Each month keeps the list it was opened against; a revision reaches the
+    months opened after it and leaves earlier cursors alone.
+    """
+    open_for(store, JULY)
 
-    assert len(store.get().plan.segments) == 1
+    revised = TILES + b"60WWV\n"
+    s3.put_object(Bucket=BUCKET, Key=TILE_KEY, Body=revised)
+    open_for(store, AUGUST)
+
+    july, august = store.get().plan.segments
+    assert july.total_count == 3
+    assert august.total_count == 4
+    assert s3.get_object(Bucket=BUCKET, Key=july.tiles_key)["Body"].read() == TILES
+    assert s3.get_object(Bucket=BUCKET, Key=august.tiles_key)["Body"].read() == revised
 
 
 def test_result_serializes_for_lambda(store):

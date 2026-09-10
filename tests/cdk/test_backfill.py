@@ -61,12 +61,15 @@ def test_both_feeders_are_deployed(template):
     }
 
 
-def test_feeders_share_one_tile_list(template):
-    """One list, two plans, both pinned to its digest."""
-    keys = {
-        env["BACKFILL_TILE_LIST_KEY"] for env in feeder_environments(template).values()
-    }
-    assert keys == {"tiles.txt"}
+def test_feeders_use_separate_tile_lists(template):
+    """The backfill's list is frozen; revising the live one must not halt it."""
+    envs = feeder_environments(template)
+
+    backfill = envs["plans/backfill.json"]["BACKFILL_TILE_LIST_KEY"]
+    forward = envs["plans/forward.json"]["BACKFILL_TILE_LIST_KEY"]
+    assert backfill == "tiles/backfill.txt"
+    assert forward == "tiles/current.txt"
+    assert backfill != forward
 
 
 def test_forward_outranks_backfill_on_queue_depth(template):
@@ -78,16 +81,22 @@ def test_forward_outranks_backfill_on_queue_depth(template):
     assert forward > backfill
 
 
-def test_backfill_is_disabled_but_forward_is_live_by_default(template):
-    """A backfill enabled at deploy time would start spending unattended.
+def test_backfill_schedule_is_disabled_by_default(template):
+    """A backfill enabled at deploy time would start spending unattended."""
+    assert schedules_by_plan(template)["plans/backfill.json"]["State"] == "DISABLED"
 
-    Forward processing is the steady state, so it ships enabled; an idle feeder
-    costs nothing until a month is opened.
-    """
+
+def test_schedule_states_follow_their_settings(template):
+    settings = build_settings()
     schedules = schedules_by_plan(template)
 
-    assert schedules["plans/backfill.json"]["State"] == "DISABLED"
-    assert schedules["plans/forward.json"]["State"] == "ENABLED"
+    def state(enabled: bool) -> str:
+        return "ENABLED" if enabled else "DISABLED"
+
+    assert schedules["plans/backfill.json"]["State"] == state(
+        settings.SCHEDULE_BACKFILL
+    )
+    assert schedules["plans/forward.json"]["State"] == state(settings.SCHEDULE_FORWARD)
 
 
 def test_feeder_lambdas_are_single_concurrency(template):
@@ -181,7 +190,7 @@ def test_month_opener_writes_the_forward_plan(template):
     variables = opener_function(template)["Environment"]["Variables"]
 
     assert variables["FORWARD_PLAN_KEY"] == "plans/forward.json"
-    assert variables["BACKFILL_TILE_LIST_KEY"] == "tiles.txt"
+    assert variables["FORWARD_TILE_LIST_KEY"] == "tiles/current.txt"
 
 
 def test_month_opener_is_single_concurrency(template):

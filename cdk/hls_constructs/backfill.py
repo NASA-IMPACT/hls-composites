@@ -174,7 +174,7 @@ class MonthOpenerFunction(Construct):
                 "PYTHONUNBUFFERED": "TRUE",
                 "PROCESSING_BUCKET_NAME": processing_bucket.bucket_name,
                 "FORWARD_PLAN_KEY": forward_plan_key,
-                "BACKFILL_TILE_LIST_KEY": tile_list_key,
+                "FORWARD_TILE_LIST_KEY": tile_list_key,
             },
             bundling=lambda_python.BundlingOptions(
                 command_hooks=UvHooks(only_groups=[BACKFILL_GROUP]),

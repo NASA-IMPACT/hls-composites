@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from mypy_boto3_s3.client import S3Client
 
 DEFAULT_PLAN_KEY = "plans/backfill.json"
-DEFAULT_TILE_LIST_KEY = "tiles.txt"
+DEFAULT_TILE_LIST_KEY = "tiles/current.txt"
 
 _NOT_FOUND_CODES = frozenset({"NoSuchKey", "404"})
 _PRECONDITION_FAILED = "PreconditionFailed"
@@ -128,6 +128,12 @@ class PlanStore:
         """
         body, _ = self._get_object(key)
         return parse_tile_list(body), tile_list_digest(body)
+
+    def write_tile_list(self, key: str, tiles: list[str]) -> str:
+        """Write a tile list, returning its content digest."""
+        body = ("\n".join(tiles) + "\n").encode()
+        self.client.put_object(Bucket=self.bucket, Key=key, Body=body)
+        return tile_list_digest(body)
 
     def _get_object(self, key: str) -> tuple[bytes, str]:
         try:

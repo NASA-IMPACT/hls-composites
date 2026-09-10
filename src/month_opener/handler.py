@@ -18,7 +18,6 @@ from hls_composites.backfill.state import (
     DEFAULT_TILE_LIST_KEY,
     PlanNotFoundError,
     PlanStore,
-    TileListMismatchError,
 )
 from hls_composites.models import YearMonth
 
@@ -29,6 +28,8 @@ else:
     logging.basicConfig(level=logging.INFO)
 
 DEFAULT_FORWARD_PLAN_KEY = "plans/forward.json"
+SNAPSHOT_PREFIX = "tiles"
+"""Where each month's frozen copy of the tile list is written."""
 
 OpenStatus = Literal["opened", "already_open"]
 """Whether this run added the month, or found it already queued."""
@@ -67,7 +68,13 @@ def open_month(
     tile_list_key: str,
     year_month: YearMonth,
 ) -> OpenResult:
-    """Append `year_month` to the forward plan, creating the plan if needed."""
+    """Append `year_month` to the forward plan, creating the plan if needed.
+
+    The month gets its own frozen copy of the tile list. Cursors are positional
+    indices, so a segment must not be reindexed by a later edit to the live
+    list -- and forward processing runs indefinitely, so that list has to stay
+    free to change.
+    """
     tiles, digest = store.read_tile_list(tile_list_key)
 
     try:
@@ -83,18 +90,20 @@ def open_month(
         )
 
     plan = stored.plan
-    if digest != plan.plan_version:
-        raise TileListMismatchError(
-            f"tile list {tile_list_key} is {digest}, forward plan was built "
-            f"against {plan.plan_version}"
-        )
-
     if any(segment.year_month == year_month for segment in plan.segments):
         logger.info("%s is already on the forward plan, nothing to do", year_month)
         return OpenResult(status="already_open", year_month=year_month)
 
+    snapshot_key = f"{SNAPSHOT_PREFIX}/{year_month}.txt"
+    store.write_tile_list(snapshot_key, tiles)
+
     plan.segments.append(
-        Segment(year_month=year_month, submitted_count=0, total_count=len(tiles))
+        Segment(
+            year_month=year_month,
+            submitted_count=0,
+            total_count=len(tiles),
+            tiles_key=snapshot_key,
+        )
     )
     store.update(replace(stored, plan=plan))
 
@@ -110,7 +119,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     )
     result = open_month(
         store=store,
-        tile_list_key=os.environ.get("BACKFILL_TILE_LIST_KEY", DEFAULT_TILE_LIST_KEY),
+        tile_list_key=os.environ.get("FORWARD_TILE_LIST_KEY", DEFAULT_TILE_LIST_KEY),
         year_month=target_month(dt.datetime.now(dt.UTC).date()),
     )
     return result.to_dict()

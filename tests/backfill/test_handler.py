@@ -198,3 +198,31 @@ def test_result_serializes_to_a_stable_json_shape(store):
         "submitted_count": None,
     }
     assert throttled.keys() == submitted.keys()
+
+
+def test_sparse_segment_is_not_gated_by_the_plan_version(store, s3):
+    """A self-describing segment must survive an edit to the plan-level list.
+
+    This is what lets forward processing keep running while the shared tile
+    list is revised, and while a long backfill holds its own list frozen.
+    """
+    s3.put_object(Bucket=BUCKET, Key="tiles/2016-06.txt", Body=b"60WWV\n01GBH\n")
+    seed(
+        store,
+        [Segment(JUNE_2016, 0, 2, tiles_key="tiles/2016-06.txt")],
+        plan_version="sha256:no-longer-matches-anything",
+    )
+    submitter = StubSubmitter()
+
+    result = feed(store, submitter, submit_count=5)
+
+    assert result.submitted == 2
+    assert submitter.units == [("60WWV", JUNE_2016), ("01GBH", JUNE_2016)]
+
+
+def test_dense_segment_is_still_gated_by_the_plan_version(store):
+    """The guard stays for segments indexed against the plan-level list."""
+    seed(store, [Segment(APRIL, 0, 5)], plan_version="sha256:stale")
+
+    with pytest.raises(TileListMismatchError, match="sha256:stale"):
+        feed(store, StubSubmitter())

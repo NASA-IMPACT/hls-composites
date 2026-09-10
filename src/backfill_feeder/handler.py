@@ -75,22 +75,22 @@ def backfill_feeder(
     stored = store.get()
     plan = stored.plan
 
-    tiles, digest = store.read_tile_list(tile_list_key)
-    if digest != plan.plan_version:
-        raise TileListMismatchError(
-            f"tile list {tile_list_key} is {digest}, plan was built against "
-            f"{plan.plan_version}"
-        )
-
     segment = plan.next_segment()
     if segment is None:
-        logger.info("Backfill complete, every segment is done")
+        logger.info("Plan complete, every segment is done")
         return FeedResult(status="complete", submitted=0)
 
     if segment.tiles_key is not None:
+        # A segment carrying its own list is self-describing, so the plan-level
+        # list may move underneath it without invalidating this cursor.
         segment_tiles, _ = store.read_tile_list(segment.tiles_key)
     else:
-        segment_tiles = tiles
+        segment_tiles, digest = store.read_tile_list(tile_list_key)
+        if digest != plan.plan_version:
+            raise TileListMismatchError(
+                f"tile list {tile_list_key} is {digest}, plan was built against "
+                f"{plan.plan_version}"
+            )
 
     if len(segment_tiles) != segment.total_count:
         raise ValueError(

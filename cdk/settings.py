@@ -85,7 +85,10 @@ class StackSettings(BaseSettings):
     # since the check happens once at the start of a tick.
     BACKFILL_MAX_ACTIVE_JOBS: int = 5_000
     BACKFILL_PLAN_KEY: str = "plans/backfill.json"
-    BACKFILL_TILE_LIST_KEY: str = "tiles.txt"
+    # Frozen for the life of the historical run: its cursors are positional
+    # indices into this list. Kept separate from the live list so that revising
+    # the live one does not halt a backfill that has weeks left to run.
+    BACKFILL_TILE_LIST_KEY: str = "tiles/backfill.txt"
 
     # ----- Forward processing
     SCHEDULE_FORWARD: bool = False
@@ -96,6 +99,9 @@ class StackSettings(BaseSettings):
     # backfill from starving forward work.
     FORWARD_MAX_ACTIVE_JOBS: int = 8_000
     FORWARD_PLAN_KEY: str = "plans/forward.json"
+    # The live list, edited by hand as the tile set changes. The opener reads it
+    # and snapshots a frozen copy per month, so it stays editable.
+    FORWARD_TILE_LIST_KEY: str = "tiles/current.txt"
     SCHEDULE_MONTH_OPENER: bool = True
     # Day of the month the opener fires, composing the month that just ended.
     # A lag, not a completeness guarantee: HLS withholds tiles above its cloud

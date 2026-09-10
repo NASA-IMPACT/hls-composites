@@ -149,7 +149,7 @@ class HlsCompositesStack(Stack):
             job_queue=self.batch_infra.queue,
             job_definition=self.processing_job.job_def,
             job_definition_arn=self.processing_job.job_def_arn_without_revision,
-            tile_list_key=settings.BACKFILL_TILE_LIST_KEY,
+            tile_list_key=settings.FORWARD_TILE_LIST_KEY,
             plan_key=settings.FORWARD_PLAN_KEY,
             max_active_jobs=settings.FORWARD_MAX_ACTIVE_JOBS,
             submit_count=settings.FORWARD_SUBMIT_COUNT,
@@ -162,7 +162,7 @@ class HlsCompositesStack(Stack):
             "MonthOpener",
             processing_bucket=self.monitoring.processing_bucket.bucket,
             forward_plan_key=settings.FORWARD_PLAN_KEY,
-            tile_list_key=settings.BACKFILL_TILE_LIST_KEY,
+            tile_list_key=settings.FORWARD_TILE_LIST_KEY,
             day_of_month=settings.MONTH_OPENER_DAY,
             enabled=settings.SCHEDULE_MONTH_OPENER,
         )
