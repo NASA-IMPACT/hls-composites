@@ -242,10 +242,15 @@ def test_every_submit_job_grant_is_scoped_to_our_queue_and_job_definition(templa
 
     assert submits
     for submit in submits:
-        queue, job_definition = submit["Resource"]
+        queue, *job_definitions = submit["Resource"]
         assert "JobQueueArn" in json.dumps(queue)
-        # Any revision of our job definition family, and nothing else.
-        assert join_suffix(job_definition) == ":*"
+        assert job_definitions
+        for job_definition in job_definitions:
+            # Our job definition family, bare or at any revision, and nothing else.
+            text = render(job_definition)
+            assert "job-definition/" in text
+            assert "ProcessingJobDef" in text
+            assert "*" not in text.removesuffix(":*")
 
 
 def test_glue_database_and_tables_exist(template):
