@@ -1,6 +1,7 @@
 import pytest
 from aws_cdk import assertions
 
+from tests.cdk.test_job_monitoring import render
 from tests.cdk.test_stack import build_settings, synth
 
 
@@ -52,6 +53,34 @@ def schedules_by_plan(template: assertions.Template) -> dict[str, dict]:
             if target_id in plan_of_function:
                 schedules[plan_of_function[target_id]] = rule
     return schedules
+
+
+def feeder_submit_resources(template: assertions.Template) -> list[list[str]]:
+    """The rendered resources of each feeder's SubmitJob grant."""
+    feeder_roles = {
+        function["Properties"]["Role"]["Fn::GetAtt"][0]
+        for function in template.find_resources("AWS::Lambda::Function").values()
+        if "BACKFILL_PLAN_KEY"
+        in function["Properties"].get("Environment", {}).get("Variables", {})
+    }
+    return [
+        [render(resource) for resource in statement["Resource"]]
+        for policy in template.find_resources("AWS::IAM::Policy").values()
+        if {role["Ref"] for role in policy["Properties"]["Roles"]} & feeder_roles
+        for statement in policy["Properties"]["PolicyDocument"]["Statement"]
+        if "batch:SubmitJob" in statement["Action"]
+    ]
+
+
+def test_feeders_may_submit_against_the_job_definition_as_they_name_it(template):
+    """A feeder names no revision, and IAM authorizes against the ARN as named."""
+    grants = feeder_submit_resources(template)
+
+    assert len(grants) == 2
+    for resources in grants:
+        (any_revision,) = [r for r in resources if r.endswith(":*")]
+        assert any_revision.startswith("arn:aws:batch:<region>:<account>:")
+        assert any_revision.removesuffix(":*") in resources
 
 
 def test_both_feeders_are_deployed(template):

@@ -55,8 +55,8 @@ class FeederFunction(Construct):
         processing_bucket:
             Bucket holding the plan and the tile lists it indexes.
         job_definition_arn:
-            Revision-less job definition ARN. The SubmitJob grant covers any
-            revision of it.
+            Revision-less job definition ARN. The SubmitJob grant covers it
+            and any revision of it.
         max_active_jobs:
             Queue-depth ceiling. Both feeders share one queue and read the same
             depth, so ordering their ceilings is what keeps a saturated backfill
@@ -95,13 +95,17 @@ class FeederFunction(Construct):
 
         processing_bucket.grant_read_write(self.function)
 
-        # SubmitJob authorizes against the resolved revision ARN, so the grant
-        # needs the ":*" suffix even though submissions name the revision-less
-        # ARN. Without it every submission is denied.
+        # SubmitJob authorizes against the job definition ARN exactly as the
+        # request names it. The feeder names no revision, which only the bare
+        # ARN matches; ":*" matches a named revision and never the bare ARN.
         self.function.add_to_role_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
-                resources=[job_queue.job_queue_arn, f"{job_definition_arn}:*"],
+                resources=[
+                    job_queue.job_queue_arn,
+                    job_definition_arn,
+                    f"{job_definition_arn}:*",
+                ],
                 actions=["batch:SubmitJob"],
             )
         )
