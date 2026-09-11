@@ -47,7 +47,7 @@ backfill = [
     "batch-event-job-monitor",
 ]
 deploy = [
-    "aws-cdk-lib>=2.180.0",
+    "aws-cdk-lib>=2.269.0",
     "aws-cdk-aws-lambda-python-alpha>=2.191.0a0",
     "batch-event-job-monitor[cdk]",
     "constructs>=10.4.2",

@@ -8,6 +8,16 @@ from aws_cdk import (
 )
 from constructs import Construct
 
+COMPUTE_ENVIRONMENT_REVISION = 2
+"""Carried into the ComputeEnvironment's construct id; increment it to replace it.
+
+With a custom service role, Batch rejects a CloudFormation update to the
+compute environment whenever the update resends `ComputeResources`, which it
+does even when only a top-level property such as `EcsSettings` changed. A new
+construct id applies such a change instead: CloudFormation creates the new
+compute environment, repoints the job queue, then deletes the old one.
+"""
+
 
 class BatchInfra(Construct):
     """AWS Batch compute environment and job queue."""
@@ -107,7 +117,7 @@ class BatchInfra(Construct):
 
         self.compute_environment = batch.ManagedEc2EcsComputeEnvironment(
             self,
-            f"CE-{stage.capitalize()}",
+            f"CE-{stage.capitalize()}-{COMPUTE_ENVIRONMENT_REVISION}",
             allocation_strategy=batch.AllocationStrategy.SPOT_CAPACITY_OPTIMIZED,
             images=[ecs_machine_image],
             launch_template=launch_template,
@@ -137,9 +147,12 @@ class BatchInfra(Construct):
             "ComputeResources.LaunchTemplate.Version",
             launch_template.latest_version_number,
         )
-        # Not yet modeled by CfnComputeEnvironment. Once set, Batch cannot
-        # return the setting to unset, so a stack rollback will not remove it.
-        cfn_ce.add_property_override("EcsSettings.ContainerInsights", "ENABLED")
+        # ManagedEc2EcsComputeEnvironment does not expose this. Once set, Batch
+        # cannot return the setting to unset, so a stack rollback will not
+        # remove it.
+        cfn_ce.ecs_settings = batch.CfnComputeEnvironment.EcsSettingsProperty(
+            container_insights="ENABLED"
+        )
 
         self.queue = batch.JobQueue(
             self,

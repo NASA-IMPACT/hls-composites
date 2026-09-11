@@ -290,7 +290,7 @@ wheels = [
 
 [[package]]
 name = "aws-cdk-lib"
-version = "2.266.0"
+version = "2.269.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aws-cdk-asset-awscli-v1" },
@@ -300,9 +300,9 @@ dependencies = [
     { name = "jsii" },
     { name = "publication" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6e/7a/9bbb0b60d8b10fbebe0867f2dc3e84e3384daa957354ae1744b8ef3f0412/aws_cdk_lib-2.266.0.tar.gz", hash = "sha256:6bf1b45ac545c4306678e120665e7e09d04817b5727afd4eb49fbbb7c55e85d2", size = 55912884, upload-time = "2026-08-19T18:52:21.009Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8e/34/7027d847f4f6fa4ebee47598d1e6d99f35489d8b4878f083d9c0a6679c97/aws_cdk_lib-2.269.0.tar.gz", hash = "sha256:a8c913064c17078519e4b2e2b54cbaed4235a0fda33b90e62eda6e70fb00a045", size = 57309935, upload-time = "2026-09-10T20:59:49.223Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ac/6e/3572f81d5fb966a481acd727dc66fe0f40cbaabcabe63f935f226a371162/aws_cdk_lib-2.266.0-py3-none-any.whl", hash = "sha256:96e3eaa9b9e2d1ac4508603be4bab0f861d7796c197ab6851efe413acf33f62a", size = 56616280, upload-time = "2026-08-19T18:51:37.385Z" },
+    { url = "https://files.pythonhosted.org/packages/a6/52/70d52998cce638997b455f1d50956d64baf6ed627dfa732871c57025f33a/aws_cdk_lib-2.269.0-py3-none-any.whl", hash = "sha256:fdb0bd9fca73657e8ceff275023e7f7206a1f3a4929d5eac3a7512fada4f9c70", size = 58033446, upload-time = "2026-09-10T20:59:04.245Z" },
 ]
 
 [[package]]
@@ -1000,7 +1000,7 @@ backfill = [
 ]
 deploy = [
     { name = "aws-cdk-aws-lambda-python-alpha", specifier = ">=2.191.0a0" },
-    { name = "aws-cdk-lib", specifier = ">=2.180.0" },
+    { name = "aws-cdk-lib", specifier = ">=2.269.0" },
     { name = "batch-event-job-monitor", extras = ["cdk"], url = "https://github.com/NASA-IMPACT/batch-event-job-monitor/releases/download/v0.1.1/batch_event_job_monitor-0.1.1-py3-none-any.whl" },
     { name = "constructs", specifier = ">=10.4.2" },
     { name = "pydantic-settings", specifier = ">=2.8.0" },
