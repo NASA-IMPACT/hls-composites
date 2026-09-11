@@ -13,7 +13,7 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 # rasterio's manylinux wheel bundles GDAL but still links libexpat; ca-certificates
 # is needed for the authenticated HTTPS reads from LP DAAC during seeding.
-# git is needed only because two dependencies are installed from git refs
+# git is needed only because batch-event-job-monitor is installed from a git ref
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libexpat1 ca-certificates git \
     && rm -rf /var/lib/apt/lists/*

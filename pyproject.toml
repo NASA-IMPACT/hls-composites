@@ -55,7 +55,7 @@ deploy = [
 ]
 
 [tool.uv.sources]
-hls-manifest = { git = "https://github.com/NASA-IMPACT/hls-manifest.git", tag = "v2.3" }
+hls-manifest = { url = "https://github.com/NASA-IMPACT/hls-manifest/releases/download/v2.4/hls_manifest-2.4-py3-none-any.whl" }
 # Unreleased: no tags or releases exist yet, so this tracks the PR branch and
 # uv.lock pins the exact commit. Bump with:
 #   uv lock --upgrade-package batch-event-job-monitor

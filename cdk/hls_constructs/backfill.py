@@ -19,10 +19,13 @@ from aws_cdk import (
 )
 from constructs import Construct
 
-from hls_constructs.uv_hooks import LAMBDA_EXCLUDE, UV_DOCKER_VOLUMES, UvHooks
+from hls_constructs.lambda_bundling import LAMBDA_EXCLUDE, export_requirements
 
 BACKFILL_GROUP = "backfill"
-"""Dependency group the feeder bundles: boto3 and bejm, nothing heavier."""
+"""Dependency group the Lambdas bundle: boto3 and bejm, nothing heavier."""
+
+LAMBDA_ENTRY = "src/"
+"""Asset root. Both handlers live under it and share one exported manifest."""
 
 
 class FeederFunction(Construct):
@@ -64,10 +67,12 @@ class FeederFunction(Construct):
         """
         super().__init__(scope, construct_id, **kwargs)
 
+        export_requirements(LAMBDA_ENTRY, BACKFILL_GROUP)
+
         self.function = lambda_python.PythonFunction(
             self,
             "Feeder",
-            entry="src/",
+            entry=LAMBDA_ENTRY,
             index="backfill_feeder/handler.py",
             handler="handler",
             runtime=lambda_.Runtime.PYTHON_3_12,
@@ -84,9 +89,7 @@ class FeederFunction(Construct):
                 "BATCH_JOB_DEFINITION_NAME": job_definition.job_definition_name,
             },
             bundling=lambda_python.BundlingOptions(
-                command_hooks=UvHooks(only_groups=[BACKFILL_GROUP]),
                 asset_excludes=LAMBDA_EXCLUDE,
-                volumes=UV_DOCKER_VOLUMES,
             ),
         )
 
@@ -160,10 +163,12 @@ class MonthOpenerFunction(Construct):
         """
         super().__init__(scope, construct_id, **kwargs)
 
+        export_requirements(LAMBDA_ENTRY, BACKFILL_GROUP)
+
         self.function = lambda_python.PythonFunction(
             self,
             "Opener",
-            entry="src/",
+            entry=LAMBDA_ENTRY,
             index="month_opener/handler.py",
             handler="handler",
             runtime=lambda_.Runtime.PYTHON_3_12,
@@ -177,9 +182,7 @@ class MonthOpenerFunction(Construct):
                 "FORWARD_TILE_LIST_KEY": tile_list_key,
             },
             bundling=lambda_python.BundlingOptions(
-                command_hooks=UvHooks(only_groups=[BACKFILL_GROUP]),
                 asset_excludes=LAMBDA_EXCLUDE,
-                volumes=UV_DOCKER_VOLUMES,
             ),
         )
 
