@@ -4,14 +4,14 @@ from xml.etree import ElementTree
 
 import pytest
 
-from hls_composites.metadata.echo10 import to_echo10
+from hls_composites.metadata.echo10 import parse_platforms, to_echo10
 from hls_composites.metadata.models import (
     COMPOSITING_ALGORITHM,
     DATASET_ID,
     DOI,
     granule_metadata,
 )
-from tests.metadata.conftest import FEBRUARY, GRANULE_ID
+from tests.metadata.conftest import FEBRUARY, GRANULE_ID, PLATFORMS
 
 PRODUCED_AT = dt.datetime(2026, 9, 3, 12, 0, 0, tzinfo=dt.UTC)
 
@@ -19,7 +19,12 @@ PRODUCED_AT = dt.datetime(2026, 9, 3, 12, 0, 0, tzinfo=dt.UTC)
 @pytest.fixture
 def root(granule_dir, browse_image):
     meta = granule_metadata(
-        "14TPN", FEBRUARY, granule_dir, browse_image, produced_at=PRODUCED_AT
+        "14TPN",
+        FEBRUARY,
+        granule_dir,
+        browse_image,
+        platforms=PLATFORMS,
+        produced_at=PRODUCED_AT,
     )
     return ElementTree.fromstring(to_echo10(meta))
 
@@ -67,12 +72,17 @@ def test_spatial_boundary_has_four_points(root):
         assert -90 <= float(point.findtext("PointLatitude")) <= 90
 
 
-def test_platforms_cover_landsat_and_sentinel(root):
-    """A composite draws from both, unlike a daily granule."""
-    names = [element.text for element in root.iter("ShortName")]
+def test_platforms_are_the_ones_given(root):
+    """A composite can draw from several, unlike a daily granule."""
+    platforms = [
+        (
+            platform.findtext("ShortName"),
+            platform.findtext("Instruments/Instrument/ShortName"),
+        )
+        for platform in root.iterfind("Platforms/Platform")
+    ]
 
-    assert "LANDSAT-8" in names
-    assert "Sentinel-2A" in names
+    assert platforms == PLATFORMS
 
 
 def test_required_additional_attributes_are_present(root):
@@ -104,7 +114,12 @@ def test_required_additional_attributes_are_present(root):
 def test_spatial_coverage_is_rounded_to_whole_percent(granule_dir, browse_image):
     """The daily products declare an integer percent, so a composite does too."""
     meta = granule_metadata(
-        "14TPN", FEBRUARY, granule_dir, browse_image, produced_at=PRODUCED_AT
+        "14TPN",
+        FEBRUARY,
+        granule_dir,
+        browse_image,
+        platforms=PLATFORMS,
+        produced_at=PRODUCED_AT,
     )
     sparse = replace(meta, spatial_coverage=4.746)
 
@@ -159,6 +174,56 @@ def test_data_format_is_declared(root):
 
 
 def test_document_has_an_xml_declaration(granule_dir, browse_image):
-    meta = granule_metadata("14TPN", FEBRUARY, granule_dir, browse_image)
+    meta = granule_metadata(
+        "14TPN", FEBRUARY, granule_dir, browse_image, platforms=PLATFORMS
+    )
 
     assert to_echo10(meta).startswith("<?xml")
+
+
+def _input_document(*platforms: tuple[str, str]) -> bytes:
+    """An input granule's ECHO-10, trimmed to the parts `parse_platforms` reads."""
+    blocks = "".join(
+        f"<Platform><ShortName>{platform}</ShortName>"
+        f"<Instruments><Instrument><ShortName>{instrument}</ShortName>"
+        "</Instrument></Instruments></Platform>"
+        for platform, instrument in platforms
+    )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        "<Granule><GranuleUR>HLS.L30.T52UDG.2026242T023640.v2.0</GranuleUR>"
+        f"<Platforms>{blocks}</Platforms>"
+        "<AdditionalAttributes><AdditionalAttribute><Name>SENSOR</Name>"
+        "<Values><Value>OLI_TIRS</Value></Values></AdditionalAttribute>"
+        "</AdditionalAttributes></Granule>"
+    ).encode()
+
+
+def test_parse_platforms_reads_the_platform_and_its_instrument():
+    document = _input_document(("LANDSAT-9", "OLI"))
+
+    assert parse_platforms(document) == [("LANDSAT-9", "OLI")]
+
+
+def test_parse_platforms_reads_every_platform():
+    document = _input_document(("Sentinel-2B", "Sentinel-2 MSI"), ("LANDSAT-8", "OLI"))
+
+    assert parse_platforms(document) == [
+        ("Sentinel-2B", "Sentinel-2 MSI"),
+        ("LANDSAT-8", "OLI"),
+    ]
+
+
+def test_parse_platforms_round_trips_what_to_echo10_writes(granule_dir, browse_image):
+    """The inputs and the composite share one schema, so the reader reads both."""
+    platforms = [("LANDSAT-9", "OLI"), ("Sentinel-2C", "Sentinel-2 MSI")]
+    meta = granule_metadata(
+        "14TPN", FEBRUARY, granule_dir, browse_image, platforms=platforms
+    )
+
+    assert parse_platforms(to_echo10(meta).encode()) == platforms
+
+
+def test_parse_platforms_refuses_a_document_naming_no_platform():
+    with pytest.raises(ValueError, match="no platform"):
+        parse_platforms(_input_document())

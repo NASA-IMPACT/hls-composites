@@ -1,9 +1,9 @@
 """Seed a local MinIO bucket with real HLS granules for one tile-month.
 
 Granules are discovered through NASA's CMR (via earthaccess) and each band
-asset is streamed over HTTPS with Earthdata Login credentials into a local
-MinIO bucket, under the same keys LP DAAC uses, so the CLI can then composite
-them offline against MinIO.
+asset, plus the granule's ECHO-10 metadata, is streamed over HTTPS with
+Earthdata Login credentials into a local MinIO bucket, under the same keys LP
+DAAC uses, so the CLI can then composite them offline against MinIO.
 
 LP DAAC's cloud buckets deny `s3:ListBucket` outright and only serve GETs to
 callers in us-west-2, so the bottom-up bucket scan the CLI uses cannot be
@@ -27,7 +27,11 @@ from earthaccess.exceptions import LoginStrategyUnavailable
 
 from hls_composites.bands import DEFAULT_BANDS
 from hls_composites.composite import asset_url
-from hls_composites.discovery import COLLECTION_DIR, parse_granule_common_prefix
+from hls_composites.discovery import (
+    COLLECTION_DIR,
+    ECHO10_SUFFIX,
+    parse_granule_common_prefix,
+)
 from hls_composites.models import DateRange, Granule, Satellite
 
 if TYPE_CHECKING:
@@ -128,18 +132,26 @@ def local_granule(
 def asset_downloads(
     result: "DataGranule", granule: Granule, bucket: str
 ) -> list[tuple[str, str]]:
-    """Pair each wanted band asset's HTTPS download URL with its local key.
+    """Pair each file a composite run reads with its HTTPS URL and local key.
 
-    CMR lists every asset of a granule; only the `DEFAULT_BANDS` subset is
-    needed to build a composite. Assets are matched by file name so the
-    source bucket (public vs. protected) stays CMR's business.
+    That is the `DEFAULT_BANDS` subset of the granule's assets, plus the
+    ECHO-10 document `read_platforms` takes the platforms from. Files are
+    matched by name across every link CMR lists, not just its data links: CMR
+    types the document as related information. Matching by name also leaves
+    the source bucket (public vs. protected) to CMR.
     """
-    links = {url.rsplit("/", 1)[-1]: url for url in result.data_links()}
+    links = {
+        related["URL"].rsplit("/", 1)[-1]: related["URL"]
+        for related in result["umm"].get("RelatedUrls", [])
+        if related["URL"].startswith("https://")
+    }
     prefix = f"s3://{bucket}/"
+    uris = [asset_url(granule, band) for band in DEFAULT_BANDS]
+    uris.append(f"{granule.path}{ECHO10_SUFFIX}")
 
     downloads: list[tuple[str, str]] = []
-    for band in DEFAULT_BANDS:
-        key = asset_url(granule, band).removeprefix(prefix)
+    for uri in uris:
+        key = uri.removeprefix(prefix)
         url = links.get(key.rsplit("/", 1)[-1])
         if url is None:
             print(f"warning: no CMR link for {key}", flush=True)

@@ -36,6 +36,20 @@ SCIENTIFIC_SCHEMA_URI = (
     "https://stac-extensions.github.io/scientific/v1.0.0/schema.json"
 )
 
+STAC_INSTRUMENTS = {"OLI": "oli", "Sentinel-2 MSI": "msi"}
+"""STAC spelling of each CMR instrument name, as the daily HLS items write it.
+
+Not derivable from the CMR name, and filtering across composites and daily
+items only works if both spell an instrument the same way.
+"""
+
+
+def _stac_instrument(name: str) -> str:
+    try:
+        return STAC_INSTRUMENTS[name]
+    except KeyError:
+        raise ValueError(f"no STAC name for instrument {name!r}") from None
+
 
 def _asset_key(path_name: str, granule_id: str) -> str:
     """Variable name from a file name, e.g. ``...v2.0.NDVI.tif`` -> ``NDVI``."""
@@ -109,6 +123,16 @@ def to_stac_item(meta: GranuleMetadata) -> dict[str, Any]:
 
     # Named as the daily HLS products name their own granule-level coverage.
     item.properties["hls:spatial_coverage"] = meta.spatial_coverage
+
+    # `platform` holds a single value and a composite draws from several, so
+    # the full list goes under the hls: prefix. The daily items lowercase the
+    # CMR platform names.
+    item.properties["instruments"] = sorted(
+        {_stac_instrument(instrument) for _, instrument in meta.platforms}
+    )
+    item.properties["hls:platforms"] = sorted(
+        {platform.lower() for platform, _ in meta.platforms}
+    )
 
     zone, band, square = mgrs_fields(meta.tile_id)
     mgrs = MgrsExtension.ext(item, add_if_missing=True)

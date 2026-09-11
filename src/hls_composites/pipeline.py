@@ -24,10 +24,9 @@ from hls_composites.browse import write_browse_image
 from hls_composites.composite import (
     CompositeOutput,
     build_composite,
-    read_platforms,
     spatial_coverage,
 )
-from hls_composites.discovery import scan_bucket_for_granules
+from hls_composites.discovery import read_platforms, scan_bucket_for_granules
 from hls_composites.io import write_rasters
 from hls_composites.metadata.manifest import write_manifest
 from hls_composites.metadata.models import COMPOSITING_ALGORITHM
@@ -123,8 +122,9 @@ def create_composite(
                 if role_arn
                 else "Reading with ambient credentials"
             )
+            s3_client = session.client("s3")
             granules = scan_bucket_for_granules(
-                session.client("s3"), input_bucket, tile_id, date_range
+                s3_client, input_bucket, tile_id, date_range
             )
 
             granule_id = composite_id(tile_id, date_range)
@@ -134,6 +134,10 @@ def create_composite(
                 # monitor records as FAILURE_NO_INPUTS.
                 on_progress(f"No granules found for {tile_id} in {date_range}")
                 return CompositeResult(granule_id, 0)
+
+            # Before compositing, so an input with unreadable metadata fails
+            # the run while it is still cheap to.
+            platforms = read_platforms(s3_client, granules)
 
             on_progress(
                 f"Compositing {output} from {len(granules)} granules "
@@ -154,8 +158,6 @@ def create_composite(
                 )
             )
             browse = write_browse_image(computed, dest / f"{dest.name}.jpg")
-            # Inside the credential scope: this reads the inputs' own headers.
-            platforms = read_platforms(granules)
 
         documents = write_metadata(
             tile_id,

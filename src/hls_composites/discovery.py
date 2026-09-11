@@ -1,9 +1,14 @@
 """Bottom-up S3 bucket scanning for HLS granule discovery."""
 
+from __future__ import annotations
+
 import re
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
+from botocore.exceptions import ClientError
+
+from hls_composites.metadata.echo10 import parse_platforms
 from hls_composites.models import DateRange, Granule
 
 if TYPE_CHECKING:
@@ -52,7 +57,7 @@ REQUEST_PAYER: Literal["requester"] = "requester"
 """Bills listing and reads to this account, as LP DAAC's buckets require."""
 
 
-def list_common_prefixes(s3_client: "S3Client", bucket: str, prefix: str) -> list[str]:
+def list_common_prefixes(s3_client: S3Client, bucket: str, prefix: str) -> list[str]:
     """List S3 CommonPrefixes under a prefix.
 
     Paginates ``list_objects_v2`` with ``Delimiter="/"``, billing the request
@@ -88,7 +93,7 @@ def list_common_prefixes(s3_client: "S3Client", bucket: str, prefix: str) -> lis
 
 
 def scan_bucket_for_granules(
-    s3_client: "S3Client",
+    s3_client: S3Client,
     bucket: str,
     tile: str,
     date_range: DateRange,
@@ -138,3 +143,49 @@ def scan_bucket_for_granules(
                     continue
                 granules.append(granule)
     return sorted(granules, key=lambda g: (g.date, g.path))
+
+
+ECHO10_SUFFIX = ".cmr.xml"
+"""Suffix of the ECHO-10 document LP DAAC publishes beside each granule's assets."""
+
+
+def read_platforms(
+    s3_client: S3Client, granules: list[Granule]
+) -> list[tuple[str, str]]:
+    """Which (platform, instrument) pairs the granules were observed by.
+
+    Read from each granule's own ECHO-10 document: the granule ID names only
+    the product, and Landsat GeoTIFFs carry no spacecraft tag. The names come
+    back in the vocabulary CMR checks the composite's own document against.
+
+    Parameters
+    ----------
+    s3_client : mypy_boto3_s3.client.S3Client
+        An S3 client carrying credentials that can read the granules.
+    granules : list of Granule
+        The granules composited.
+
+    Returns
+    -------
+    list of tuple of str
+        `(platform, instrument)` pairs, sorted and deduplicated.
+
+    Raises
+    ------
+    RuntimeError
+        If a granule's document could not be read.
+    ValueError
+        If a granule's document names no platform.
+    """
+    found: set[tuple[str, str]] = set()
+    for granule in granules:
+        uri = f"{granule.path}{ECHO10_SUFFIX}"
+        bucket, key = uri.removeprefix("s3://").split("/", 1)
+        try:
+            response = s3_client.get_object(
+                Bucket=bucket, Key=key, RequestPayer=REQUEST_PAYER
+            )
+        except ClientError as error:
+            raise RuntimeError(f"could not read {uri}: {error}") from error
+        found.update(parse_platforms(response["Body"].read()))
+    return sorted(found)

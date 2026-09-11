@@ -56,8 +56,8 @@ def stages(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline, "scan_bucket_for_granules", fake_scan)
     monkeypatch.setattr(pipeline, "build_composite", fake_build)
     monkeypatch.setattr(pipeline, "write_rasters", fake_write)
-    # Reads the inputs' headers, which these stubs do not produce.
-    monkeypatch.setattr(pipeline, "read_platforms", lambda granules: PLATFORMS)
+    # Reads the inputs' own metadata, which these stubs do not produce.
+    monkeypatch.setattr(pipeline, "read_platforms", lambda s3, granules: PLATFORMS)
     # Metadata reads the written rasters, which these stubs do not produce.
     # Tests that care about it override this.
     monkeypatch.setattr(pipeline, "write_metadata", lambda *a, **k: [])
@@ -285,6 +285,58 @@ class TestMetadata:
         run(S3Destination("out-bucket"))
 
         assert order == ["metadata", "upload"]
+
+
+class TestPlatforms:
+    def test_read_with_the_discovery_client_for_the_discovered_granules(
+        self, stages, monkeypatch, tmp_path
+    ):
+        """The discovery client carries the credentials that can read the inputs."""
+        seen: dict = {}
+        original_scan = pipeline.scan_bucket_for_granules
+
+        def recording_scan(client, *args, **kwargs):
+            seen["scan_client"] = client
+            return original_scan(client, *args, **kwargs)
+
+        def recording_read(client, granules):
+            seen.update(read_client=client, granules=granules)
+            return PLATFORMS
+
+        monkeypatch.setattr(pipeline, "scan_bucket_for_granules", recording_scan)
+        monkeypatch.setattr(pipeline, "read_platforms", recording_read)
+
+        run(LocalDestination(tmp_path))
+
+        assert seen["read_client"] is seen["scan_client"]
+        assert seen["granules"] == GRANULES
+
+    def test_a_read_failure_stops_the_run_before_compositing(
+        self, stages, monkeypatch, tmp_path
+    ):
+        """An input with no metadata is found out before the expensive part."""
+
+        def boom(client, granules):
+            raise RuntimeError("could not read s3://b/g.cmr.xml")
+
+        monkeypatch.setattr(pipeline, "read_platforms", boom)
+
+        with pytest.raises(RuntimeError, match="g.cmr.xml"):
+            run(LocalDestination(tmp_path))
+
+        assert "build" not in stages
+
+    def test_reach_the_metadata(self, stages, monkeypatch, tmp_path):
+        written: dict = {}
+        monkeypatch.setattr(
+            pipeline,
+            "write_metadata",
+            lambda *a, platforms, **k: written.update(platforms=platforms) or [],
+        )
+
+        run(LocalDestination(tmp_path))
+
+        assert written["platforms"] == PLATFORMS
 
 
 class TestRequesterPays:

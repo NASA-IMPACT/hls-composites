@@ -52,19 +52,6 @@ BROWSE_DESCRIPTION = "Browse image"
 SPATIAL_RESOLUTION = 30.0
 DAY_NIGHT_FLAG = "DAY"
 
-PLATFORMS: list[tuple[str, str]] = [
-    ("LANDSAT-8", "OLI"),
-    ("LANDSAT-9", "OLI"),
-    ("Sentinel-2A", "Sentinel-2 MSI"),
-    ("Sentinel-2B", "Sentinel-2 MSI"),
-]
-"""(platform, instrument) pairs to fall back on when the inputs cannot be read.
-
-A composite names the spacecraft that actually contributed (see
-`composite.read_platforms`); this is the collection-level set, and goes stale
-as the fleet changes, so it stands in only when nothing better is known.
-"""
-
 CMR_STAC_BASE = "https://cmr.earthdata.nasa.gov/stac/LPCLOUD/collections"
 """Root of the CMR-STAC catalog the input granules are published in."""
 
@@ -167,7 +154,7 @@ class GranuleMetadata:
     spatial_coverage : float
         Percentage of pixels carrying data, 0 to 100.
     platforms : list of tuple of str
-        `(spacecraft, instrument)` pairs that contributed observations.
+        `(platform, instrument)` pairs that contributed observations.
     scale_factor, add_offset : float
         Encoding of the index rasters.
     fill_value, qa_fill_value : int
@@ -239,9 +226,9 @@ def granule_metadata(
     date_range: DateRange,
     granule_dir: Path,
     browse_image: Path,
+    platforms: list[tuple[str, str]],
     inputs: list[Granule] | None = None,
     produced_at: dt.datetime | None = None,
-    platforms: list[tuple[str, str]] | None = None,
 ) -> GranuleMetadata:
     """Describe a written composite directory.
 
@@ -255,14 +242,14 @@ def granule_metadata(
         Directory holding the written GeoTIFFs.
     browse_image : pathlib.Path
         The rendered browse image, referenced from both documents.
+    platforms : list of tuple of str
+        `(platform, instrument)` pairs that contributed observations, from
+        `discovery.read_platforms`.
     inputs : list of Granule, optional
         The granules composited. Recorded as provenance; omitted from both
         documents when not given.
     produced_at : datetime.datetime, optional
         Production time, by default the current UTC time.
-    platforms : list of tuple of str, optional
-        `(spacecraft, instrument)` pairs that contributed observations, from
-        `composite.read_platforms`. Falls back to `PLATFORMS` when not given.
 
     Returns
     -------
@@ -271,9 +258,14 @@ def granule_metadata(
 
     Raises
     ------
+    ValueError
+        If `platforms` is empty.
     FileNotFoundError
         If the directory holds no GeoTIFFs.
     """
+    if not platforms:
+        raise ValueError("a composite must name the platforms it drew from")
+
     assets = sorted(granule_dir.glob("*.tif"))
     if not assets:
         raise FileNotFoundError(f"no GeoTIFFs in {granule_dir}")
@@ -307,7 +299,7 @@ def granule_metadata(
         ncols=ncols,
         nrows=nrows,
         spatial_coverage=coverage,
-        platforms=platforms if platforms else PLATFORMS,
+        platforms=platforms,
         scale_factor=index.scale_factor,
         add_offset=0.0,
         fill_value=index.fill_value,

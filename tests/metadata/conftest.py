@@ -19,6 +19,7 @@ ULX = 300000.0
 ULY = 4600000.0
 PIXEL = 30.0
 NDVI_DESCRIPTION = "Normalized Difference Vegetation Index"
+PLATFORMS = [("LANDSAT-9", "OLI"), ("Sentinel-2C", "Sentinel-2 MSI")]
 
 
 def _write(

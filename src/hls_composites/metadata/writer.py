@@ -17,8 +17,8 @@ def write_metadata(
     date_range: DateRange,
     granule_dir: Path,
     browse_image: Path,
+    platforms: list[tuple[str, str]],
     inputs: list[Granule] | None = None,
-    platforms: list[tuple[str, str]] | None = None,
 ) -> list[Path]:
     """Describe the composite in `granule_dir` and write both documents there.
 
@@ -35,10 +35,10 @@ def write_metadata(
         alongside them.
     browse_image : pathlib.Path
         The rendered browse image, referenced from both documents.
+    platforms : list of tuple of str
+        `(platform, instrument)` pairs that contributed observations.
     inputs : list of Granule, optional
         The granules composited, recorded as provenance in both documents.
-    platforms : list of tuple of str, optional
-        `(spacecraft, instrument)` pairs that contributed observations.
 
     Returns
     -------
@@ -50,8 +50,8 @@ def write_metadata(
         date_range,
         granule_dir,
         browse_image,
+        platforms,
         inputs=inputs,
-        platforms=platforms,
     )
 
     xml_path = granule_dir / f"{meta.granule_id}{CMR_SUFFIX}"

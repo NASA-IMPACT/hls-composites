@@ -1,11 +1,17 @@
+import io
+import re
 from datetime import date
+
+import pytest
+from botocore.exceptions import ClientError
 
 from hls_composites.discovery import (
     list_common_prefixes,
     parse_granule_common_prefix,
+    read_platforms,
     scan_bucket_for_granules,
 )
-from hls_composites.models import DateRange
+from hls_composites.models import DateRange, Granule
 
 
 def test_parse_granule_common_prefix_l30():
@@ -202,3 +208,106 @@ def test_listing_is_billed_to_the_requester():
     list_common_prefixes(RecordingClient(), "bucket", "2020/")
 
     assert seen["RequestPayer"] == "requester"
+
+
+L30_GRANULE = Granule(
+    path="s3://lp-prod-protected/HLSL30.020/HLS.L30.T52UDG.2026242T023640.v2.0/HLS.L30.T52UDG.2026242T023640.v2.0",
+    satellite="L30",
+    date=date(2026, 8, 30),
+)
+S30_GRANULE = Granule(
+    path="s3://lp-prod-protected/HLSS30.020/HLS.S30.T52UDG.2026243T022551.v2.0/HLS.S30.T52UDG.2026243T022551.v2.0",
+    satellite="S30",
+    date=date(2026, 8, 31),
+)
+
+
+def _echo10(platform: str, instrument: str) -> bytes:
+    return (
+        "<Granule><Platforms><Platform>"
+        f"<ShortName>{platform}</ShortName>"
+        f"<Instruments><Instrument><ShortName>{instrument}</ShortName>"
+        "</Instrument></Instruments>"
+        "</Platform></Platforms></Granule>"
+    ).encode()
+
+
+class _ObjectStore:
+    """Serves `get_object` from a dict of `(bucket, key)` -> bytes."""
+
+    def __init__(self, objects: dict[tuple[str, str], bytes]):
+        self._objects = objects
+        self.requests: list[dict] = []
+
+    def get_object(self, **kwargs):
+        self.requests.append(kwargs)
+        try:
+            body = self._objects[(kwargs["Bucket"], kwargs["Key"])]
+        except KeyError:
+            raise ClientError(
+                {"Error": {"Code": "NoSuchKey", "Message": "not found"}},
+                "GetObject",
+            ) from None
+        return {"Body": io.BytesIO(body)}
+
+
+def _key(granule: Granule) -> tuple[str, str]:
+    bucket, key = granule.path.removeprefix("s3://").split("/", 1)
+    return bucket, f"{key}.cmr.xml"
+
+
+def test_read_platforms_names_what_each_input_declares():
+    """Landsat inputs name their spacecraft here too, unlike their GeoTIFF tags."""
+    store = _ObjectStore(
+        {
+            _key(L30_GRANULE): _echo10("LANDSAT-9", "OLI"),
+            _key(S30_GRANULE): _echo10("Sentinel-2C", "Sentinel-2 MSI"),
+        }
+    )
+
+    assert read_platforms(store, [S30_GRANULE, L30_GRANULE]) == [
+        ("LANDSAT-9", "OLI"),
+        ("Sentinel-2C", "Sentinel-2 MSI"),
+    ]
+
+
+def test_read_platforms_deduplicates_repeated_platforms():
+    other = Granule(f"{L30_GRANULE.path}x", "L30", date(2026, 8, 30))
+    store = _ObjectStore(
+        {
+            _key(L30_GRANULE): _echo10("LANDSAT-8", "OLI"),
+            _key(other): _echo10("LANDSAT-8", "OLI"),
+        }
+    )
+
+    assert read_platforms(store, [L30_GRANULE, other]) == [("LANDSAT-8", "OLI")]
+
+
+def test_read_platforms_reads_the_document_beside_the_granule():
+    store = _ObjectStore({_key(L30_GRANULE): _echo10("LANDSAT-9", "OLI")})
+
+    read_platforms(store, [L30_GRANULE])
+
+    assert store.requests == [
+        {
+            "Bucket": "lp-prod-protected",
+            "Key": "HLSL30.020/HLS.L30.T52UDG.2026242T023640.v2.0/"
+            "HLS.L30.T52UDG.2026242T023640.v2.0.cmr.xml",
+            "RequestPayer": "requester",
+        }
+    ]
+
+
+def test_read_platforms_fails_naming_a_missing_document():
+    """Leaving an input out would under-report its platform without a trace."""
+    store = _ObjectStore({_key(L30_GRANULE): _echo10("LANDSAT-9", "OLI")})
+
+    with pytest.raises(RuntimeError, match=re.escape(f"{S30_GRANULE.path}.cmr.xml")):
+        read_platforms(store, [L30_GRANULE, S30_GRANULE])
+
+
+def test_read_platforms_fails_on_a_document_naming_no_platform():
+    store = _ObjectStore({_key(L30_GRANULE): b"<Granule><Platforms/></Granule>"})
+
+    with pytest.raises(ValueError, match="no platform"):
+        read_platforms(store, [L30_GRANULE])

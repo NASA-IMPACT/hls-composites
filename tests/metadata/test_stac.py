@@ -1,4 +1,5 @@
 import datetime as dt
+from dataclasses import replace
 
 import pystac
 import pytest
@@ -16,6 +17,7 @@ from tests.metadata.conftest import (
     GRANULE_ID,
     NDVI_DESCRIPTION,
     PIXEL,
+    PLATFORMS,
     ULX,
     ULY,
 )
@@ -26,7 +28,12 @@ PRODUCED_AT = dt.datetime(2026, 9, 3, 12, 0, 0, tzinfo=dt.UTC)
 @pytest.fixture
 def item(granule_dir, browse_image):
     meta = granule_metadata(
-        "14TPN", FEBRUARY, granule_dir, browse_image, produced_at=PRODUCED_AT
+        "14TPN",
+        FEBRUARY,
+        granule_dir,
+        browse_image,
+        platforms=PLATFORMS,
+        produced_at=PRODUCED_AT,
     )
     return to_stac_item(meta)
 
@@ -67,7 +74,9 @@ def test_no_doi_is_claimed_while_it_is_a_placeholder(item):
 
 def test_the_doi_appears_once_assigned(granule_dir, browse_image, monkeypatch):
     monkeypatch.setattr("hls_composites.metadata.stac.DOI", "10.5067/HLS/HLSM30.001")
-    meta = granule_metadata("14TPN", FEBRUARY, granule_dir, browse_image)
+    meta = granule_metadata(
+        "14TPN", FEBRUARY, granule_dir, browse_image, platforms=PLATFORMS
+    )
 
     assigned = to_stac_item(meta)
 
@@ -129,6 +138,40 @@ def test_the_raster_extension_is_declared_for_the_scaled_bands(item):
 def test_item_declares_its_spatial_coverage(item):
     """12 of 16 pixels carry data."""
     assert item["properties"]["hls:spatial_coverage"] == 75.0
+
+
+def test_item_names_the_instruments_that_contributed(item):
+    """Spelled as the daily items spell them, not as CMR does."""
+    assert item["properties"]["instruments"] == ["msi", "oli"]
+
+
+def test_item_names_the_platforms_that_contributed(item):
+    """`platform` holds one value, so the full list lives under `hls:`."""
+    assert item["properties"]["hls:platforms"] == ["landsat-9", "sentinel-2c"]
+    assert "platform" not in item["properties"]
+
+
+def test_an_instrument_on_several_platforms_is_listed_once(granule_dir, browse_image):
+    meta = granule_metadata(
+        "14TPN",
+        FEBRUARY,
+        granule_dir,
+        browse_image,
+        platforms=[("LANDSAT-8", "OLI"), ("LANDSAT-9", "OLI")],
+    )
+
+    assert to_stac_item(meta)["properties"]["instruments"] == ["oli"]
+
+
+def test_an_instrument_with_no_stac_name_is_refused(granule_dir, browse_image):
+    """A guessed spelling would not match the daily items it is filtered with."""
+    meta = granule_metadata(
+        "14TPN", FEBRUARY, granule_dir, browse_image, platforms=PLATFORMS
+    )
+    unknown = replace(meta, platforms=[("LANDSAT-10", "OLI-3")])
+
+    with pytest.raises(ValueError, match="OLI-3"):
+        to_stac_item(unknown)
 
 
 def test_each_band_reports_the_valid_percentage(item):
