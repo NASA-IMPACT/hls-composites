@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from aws_cdk import App, assertions
 
@@ -120,6 +122,24 @@ def test_compute_environment_is_capped_spot(template):
             ),
         },
     )
+
+
+def test_container_insights_are_managed_through_batch(template):
+    """Set on the compute environment, which owns its ECS cluster."""
+    template.has_resource_properties(
+        "AWS::Batch::ComputeEnvironment",
+        {"EcsSettings": {"ContainerInsights": "ENABLED"}},
+    )
+
+
+def test_the_batch_ecs_cluster_is_not_configured_directly(template):
+    """A cluster setting Batch did not make is one the console flags as unmanaged."""
+    calls = [
+        json.dumps(resource["Properties"])
+        for resource in template.find_resources("Custom::AWS").values()
+    ]
+
+    assert not any("UpdateCluster" in call for call in calls)
 
 
 def test_job_queue_is_named_for_the_stage(template):

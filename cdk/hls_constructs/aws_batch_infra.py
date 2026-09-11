@@ -5,7 +5,6 @@ from aws_cdk import (
     aws_batch as batch,
     aws_ec2 as ec2,
     aws_iam as iam,
-    custom_resources as cr,
 )
 from constructs import Construct
 
@@ -138,7 +137,9 @@ class BatchInfra(Construct):
             "ComputeResources.LaunchTemplate.Version",
             launch_template.latest_version_number,
         )
-        self.enable_container_insights(self.compute_environment)
+        # Not yet modeled by CfnComputeEnvironment. Once set, Batch cannot
+        # return the setting to unset, so a stack rollback will not remove it.
+        cfn_ce.add_property_override("EcsSettings.ContainerInsights", "ENABLED")
 
         self.queue = batch.JobQueue(
             self,
@@ -151,56 +152,4 @@ class BatchInfra(Construct):
             self,
             "JobQueueName",
             value=self.queue.job_queue_name,
-        )
-
-    def enable_container_insights(
-        self, compute_environment: batch.IComputeEnvironment
-    ) -> None:
-        """Enable ContainerInsights for this managed ComputeEnvironment.
-
-        AWS Batch owns the underlying ECS cluster, so the setting has to be applied
-        out of band once the cluster ARN is known.
-        Ref: https://github.com/aws/aws-cdk/issues/21698#issuecomment-1898890043
-        """
-        batch_ecs_cluster = cr.AwsCustomResource(
-            self,
-            "BatchEcsCluster",
-            policy=cr.AwsCustomResourcePolicy.from_sdk_calls(
-                resources=cr.AwsCustomResourcePolicy.ANY_RESOURCE
-            ),
-            on_update=cr.AwsSdkCall(
-                service="@aws-sdk/client-batch",
-                action="DescribeComputeEnvironmentsCommand",
-                parameters={
-                    "computeEnvironments": [
-                        compute_environment.compute_environment_arn
-                    ],
-                },
-                physical_resource_id=cr.PhysicalResourceId.from_response(
-                    "computeEnvironments.0.ecsClusterArn"
-                ),
-            ),
-        )
-        cr.AwsCustomResource(
-            self,
-            "EnableContainerInsights",
-            policy=cr.AwsCustomResourcePolicy.from_sdk_calls(
-                resources=cr.AwsCustomResourcePolicy.ANY_RESOURCE
-            ),
-            on_update=cr.AwsSdkCall(
-                service="@aws-sdk/client-ecs",
-                action="UpdateClusterCommand",
-                parameters={
-                    "cluster": batch_ecs_cluster.get_response_field_reference(
-                        "computeEnvironments.0.ecsClusterArn"
-                    ),
-                    "settings": [
-                        {
-                            "name": "containerInsights",
-                            "value": "enabled",
-                        }
-                    ],
-                },
-                physical_resource_id=cr.PhysicalResourceId.of("compute-resource-tags"),
-            ),
         )
