@@ -41,11 +41,6 @@ def export_requirements(entry: str, group: str) -> str:
         "--no-emit-project",
         "--no-dev",
         "--no-editable",
-        # batch-event-job-monitor resolves to a git URL, which pip cannot hash.
-        # pip requires hashes for every requirement or none, so exporting them
-        # makes the install fail outright. Versions stay pinned by the lockfile
-        # and the git dependency is pinned to a commit.
-        "--no-hashes",
         "-o",
         str(destination),
     ]
