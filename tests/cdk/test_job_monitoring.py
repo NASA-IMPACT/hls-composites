@@ -17,6 +17,19 @@ def resources_of(template: assertions.Template, type_: str) -> list[dict]:
     return list(template.find_resources(type_).values())
 
 
+def processing_buckets(template: assertions.Template, prefix: str) -> list[dict]:
+    """Buckets created under `prefix` in the account regional namespace.
+
+    The bucket has no BucketName: CloudFormation forms the full name from the
+    prefix, the account and the region.
+    """
+    return [
+        bucket["Properties"]
+        for bucket in resources_of(template, "AWS::S3::Bucket")
+        if bucket["Properties"].get("BucketNamePrefix") == prefix
+    ]
+
+
 def event_rules(template: assertions.Template) -> list[dict]:
     """The monitor's event-pattern rules, excluding the feeders' schedules."""
     return [
@@ -43,11 +56,30 @@ def join_literals(value: dict) -> str:
     return "".join(part for part in parts if isinstance(part, str))
 
 
+def render(value) -> str:
+    """Render a CloudFormation value as readable text.
+
+    Names in the account regional namespace are built from the account and
+    region, so they reach the template as joins over pseudo-parameters rather
+    than as plain strings.
+    """
+    if isinstance(value, str):
+        return value
+    if "Fn::Join" in value:
+        separator, parts = value["Fn::Join"]
+        return separator.join(render(part) for part in parts)
+    if "Ref" in value:
+        return {"AWS::AccountId": "<account>", "AWS::Region": "<region>"}.get(
+            value["Ref"], value["Ref"]
+        )
+    return str(value)
+
+
 def test_processing_bucket_inventories_cover_state_and_outputs(template):
     (bucket,) = [
         bucket
         for bucket in resources_of(template, "AWS::S3::Bucket")
-        if bucket["Properties"].get("BucketName") == "hls-composites-dev"
+        if bucket["Properties"].get("BucketNamePrefix") == "hls-composites-dev"
     ]
 
     inventories = bucket["Properties"]["InventoryConfigurations"]
@@ -60,7 +92,8 @@ def test_processing_bucket_inventories_cover_state_and_outputs(template):
     assert all(i["Destination"]["Prefix"] == "inventories" for i in inventories)
     # Reports land in the same bucket they inventory.
     assert all(
-        i["Destination"]["BucketArn"] == "arn:aws:s3:::hls-composites-dev"
+        render(i["Destination"]["BucketArn"])
+        == "arn:aws:s3:::hls-composites-dev-<account>-<region>-an"
         for i in inventories
     )
 
@@ -248,8 +281,9 @@ def test_records_table_projects_job_type_and_year_month(template):
     assert parameters["projection.year_month.format"] == "yyyy-MM"
     assert parameters["projection.year_month.range"] == "2013-01,NOW"
     assert "projection.tile_id.type" not in parameters
-    assert parameters["storage.location.template"] == (
-        "s3://hls-composites-dev/records/job_type=${job_type}/year_month=${year_month}/"
+    assert render(parameters["storage.location.template"]) == (
+        "s3://hls-composites-dev-<account>-<region>-an"
+        "/records/job_type=${job_type}/year_month=${year_month}/"
     )
 
 
@@ -283,7 +317,7 @@ def test_dev_processing_bucket_is_emptied_and_deleted(template):
     (bucket,) = [
         bucket
         for bucket in resources_of(template, "AWS::S3::Bucket")
-        if bucket["Properties"].get("BucketName") == "hls-composites-dev"
+        if bucket["Properties"].get("BucketNamePrefix") == "hls-composites-dev"
     ]
 
     assert bucket["DeletionPolicy"] == "Delete"
@@ -295,14 +329,14 @@ def test_prod_processing_bucket_is_retained_and_not_auto_deleted():
         build_settings(
             STAGE="prod",
             STACK_NAME="hls-composites-prod",
-            PROCESSING_BUCKET_NAME="hls-composites-prod",
+            PROCESSING_BUCKET_NAME_PREFIX="hls-composites-prod",
         )
     )
 
     (bucket,) = [
         bucket
         for bucket in resources_of(template, "AWS::S3::Bucket")
-        if bucket["Properties"].get("BucketName") == "hls-composites-prod"
+        if bucket["Properties"].get("BucketNamePrefix") == "hls-composites-prod"
     ]
 
     assert bucket["DeletionPolicy"] == "RetainExceptOnCreate"

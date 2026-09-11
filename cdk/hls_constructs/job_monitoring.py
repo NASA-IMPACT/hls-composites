@@ -83,7 +83,7 @@ class JobMonitoring(Construct):
         *,
         job_queue: batch.IJobQueue,
         job_definition: batch.IJobDefinition,
-        processing_bucket_name: str,
+        processing_bucket_name_prefix: str,
         retry_max_attempts: int,
         stage: str,
         database_name: str,
@@ -100,9 +100,10 @@ class JobMonitoring(Construct):
         job_definition:
             Job definition whose job state changes are monitored. Resubmissions
             go back to this same queue and definition.
-        processing_bucket_name:
-            Name of the bucket holding records, state pointers, and the output
-            index. Created here.
+        processing_bucket_name_prefix:
+            Prefix of the bucket holding records, state pointers, and the
+            output index. Created here, in the account regional namespace, so
+            its full name is {prefix}-{account}-{region}-an.
         retry_max_attempts:
             Attempts a job gets before a retryable failure becomes terminal.
         stage:
@@ -129,7 +130,7 @@ class JobMonitoring(Construct):
         self.processing_bucket = ProcessingBucket(
             self,
             "ProcessingBucket",
-            bucket_name=processing_bucket_name,
+            bucket_name_prefix=processing_bucket_name_prefix,
             inventory_prefix=INVENTORY_PREFIX,
             inventories=[
                 (STATE_INVENTORY_ID, "state/"),
@@ -190,7 +191,7 @@ class JobMonitoring(Construct):
             "RecordsTable",
             database=self.database,
             database_name=database_name,
-            records_bucket_name=processing_bucket_name,
+            records_bucket_name=self.processing_bucket.bucket_name,
             partition_keys=keys,
             table_name="records",
         )

@@ -15,7 +15,7 @@ dependencies = [
     "pillow>=11",
     "hls-manifest",
     "pystac>=1.12",
-    "rasterio>=1.4.3",
+    "rasterio>=1.5.1",
     "rioxarray>=0.17.0",
     "xarray>=2025.1.0",
 ]
@@ -55,11 +55,8 @@ deploy = [
 ]
 
 [tool.uv.sources]
-hls-manifest = { git = "https://github.com/NASA-IMPACT/hls-manifest.git", tag = "v2.3" }
-# Unreleased: no tags or releases exist yet, so this tracks the PR branch and
-# uv.lock pins the exact commit. Bump with:
-#   uv lock --upgrade-package batch-event-job-monitor
-batch-event-job-monitor = { git = "https://github.com/NASA-IMPACT/batch-event-job-monitor.git", branch = "feat/init" }
+hls-manifest = { url = "https://github.com/NASA-IMPACT/hls-manifest/releases/download/v2.4/hls_manifest-2.4-py3-none-any.whl" }
+batch-event-job-monitor = { url = "https://github.com/NASA-IMPACT/batch-event-job-monitor/releases/download/v0.1.1/batch_event_job_monitor-0.1.1-py3-none-any.whl" }
 
 [build-system]
 requires = ["uv_build>=0.9.10,<0.10.0"]

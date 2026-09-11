@@ -44,7 +44,13 @@ class StackSettings(BaseSettings):
     # Bucket the job monitor writes records, state pointers, and output index
     # entries to. Created by the batch-event-job-monitor ProcessingBucket
     # construct, which also configures its S3 Inventories.
-    PROCESSING_BUCKET_NAME: str
+    # Prefix, not a full name: the bucket is created in the account regional
+    # namespace, so CloudFormation forms the name as
+    # {prefix}-{account}-{region}-an. That namespace is reserved to this
+    # account, so the name cannot be claimed or re-created by another one, and
+    # the same prefix templates cleanly across accounts and regions. The suffix
+    # counts against S3's 63-character limit, leaving 37 for the prefix.
+    PROCESSING_BUCKET_NAME_PREFIX: str
 
     # ----- LPDAAC access
     # Role from `hls-vi-historical-orchestration` that LPDAAC bucket policies grant
