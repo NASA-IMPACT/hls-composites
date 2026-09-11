@@ -15,7 +15,7 @@ dependencies = [
     "pillow>=11",
     "hls-manifest",
     "pystac>=1.12",
-    "rasterio>=1.4.3",
+    "rasterio>=1.5.1",
     "rioxarray>=0.17.0",
     "xarray>=2025.1.0",
 ]
