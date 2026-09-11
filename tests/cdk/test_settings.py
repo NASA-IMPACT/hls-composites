@@ -17,7 +17,7 @@ REQUIRED = {
         "123456789012.dkr.ecr.us-west-2.amazonaws.com/hls-composites:v0.1.0"
     ),
     "PROCESSING_LOG_GROUP_NAME": "hls-composites-processing-dev",
-    "PROCESSING_BUCKET_NAME": "hls-composites-dev",
+    "PROCESSING_BUCKET_NAME_PREFIX": "hls-composites-dev",
     "ATHENA_DATABASE_NAME": "hls_composites_dev",
     "ATHENA_INVENTORY_START_DATETIME": "2026-09-01T01:00:00",
 }

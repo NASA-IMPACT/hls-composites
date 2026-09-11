@@ -28,7 +28,7 @@ def build_settings(**overrides) -> StackSettings:
         "LPDAAC_READER_ROLE_ARN": LPDAAC_ROLE_ARN,
         "PROCESSING_CONTAINER_ECR_URI": ECR_URI,
         "PROCESSING_LOG_GROUP_NAME": "hls-composites-processing-dev",
-        "PROCESSING_BUCKET_NAME": "hls-composites-dev",
+        "PROCESSING_BUCKET_NAME_PREFIX": "hls-composites-dev",
         "ATHENA_DATABASE_NAME": "hls_composites_dev",
         "ATHENA_INVENTORY_START_DATETIME": "2026-09-01T01:00:00",
         "BATCH_MAX_VCPU": 32,
@@ -82,7 +82,13 @@ def resolve(template: assertions.Template, value) -> str:
         logical_id, attribute = value["Fn::GetAtt"]
         resource = template.to_json()["Resources"][logical_id]
         if resource["Type"] == "AWS::S3::Bucket" and attribute == "Arn":
-            return f"arn:aws:s3:::{resource['Properties']['BucketName']}"
+            properties = resource["Properties"]
+            if "BucketName" in properties:
+                return f"arn:aws:s3:::{properties['BucketName']}"
+            # Account regional namespace: CloudFormation forms the full name
+            # from the prefix, the account and the region.
+            prefix = properties["BucketNamePrefix"]
+            return f"arn:aws:s3:::{prefix}-{ACCOUNT_ID}-{REGION}-an"
     raise AssertionError(f"cannot resolve {value!r}")
 
 
