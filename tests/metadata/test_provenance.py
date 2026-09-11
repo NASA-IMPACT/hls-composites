@@ -11,7 +11,7 @@ from hls_composites.metadata.echo10 import to_echo10
 from hls_composites.metadata.models import CMR_STAC_BASE, granule_metadata
 from hls_composites.metadata.stac import to_stac_item
 from hls_composites.models import Granule
-from tests.metadata.conftest import FEBRUARY
+from tests.metadata.conftest import FEBRUARY, PLATFORMS
 
 INPUTS = [
     Granule(
@@ -29,7 +29,9 @@ INPUTS = [
 
 @pytest.fixture
 def meta(granule_dir, browse_image):
-    return granule_metadata("14TPN", FEBRUARY, granule_dir, browse_image, inputs=INPUTS)
+    return granule_metadata(
+        "14TPN", FEBRUARY, granule_dir, browse_image, platforms=PLATFORMS, inputs=INPUTS
+    )
 
 
 class TestMgrsFields:
@@ -63,7 +65,9 @@ class TestInputProvenance:
         )
 
     def test_no_inputs_is_an_empty_list(self, granule_dir, browse_image):
-        meta = granule_metadata("14TPN", FEBRUARY, granule_dir, browse_image)
+        meta = granule_metadata(
+            "14TPN", FEBRUARY, granule_dir, browse_image, platforms=PLATFORMS
+        )
 
         assert meta.inputs == []
 
@@ -80,7 +84,9 @@ class TestEcho10Provenance:
         assert values == [item.granule_id for item in meta.inputs]
 
     def test_attribute_is_omitted_without_inputs(self, granule_dir, browse_image):
-        meta = granule_metadata("14TPN", FEBRUARY, granule_dir, browse_image)
+        meta = granule_metadata(
+            "14TPN", FEBRUARY, granule_dir, browse_image, platforms=PLATFORMS
+        )
         root = ElementTree.fromstring(to_echo10(meta))
 
         names = [

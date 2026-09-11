@@ -150,3 +150,32 @@ def to_echo10(meta: GranuleMetadata) -> str:
     ElementTree.indent(granule, space="  ")
     body = ElementTree.tostring(granule, encoding="unicode")
     return f'<?xml version="1.0" encoding="UTF-8"?>\n{body}'
+
+
+def parse_platforms(document: bytes) -> list[tuple[str, str]]:
+    """The `(platform, instrument)` pairs an ECHO-10 granule names.
+
+    Parameters
+    ----------
+    document : bytes
+        An ECHO-10 granule document, e.g. an input granule's `.cmr.xml`.
+
+    Returns
+    -------
+    list of tuple of str
+        One pair per instrument, in document order.
+
+    Raises
+    ------
+    ValueError
+        If the document names no platform.
+    """
+    root = ElementTree.fromstring(document)
+    pairs = [
+        (platform.findtext("ShortName", ""), instrument.findtext("ShortName", ""))
+        for platform in root.iterfind("Platforms/Platform")
+        for instrument in platform.iterfind("Instruments/Instrument")
+    ]
+    if not pairs:
+        raise ValueError(f"{root.findtext('GranuleUR', 'granule')} names no platform")
+    return pairs

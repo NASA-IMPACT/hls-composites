@@ -12,7 +12,7 @@ from hls_composites.metadata.models import (
     SPATIAL_RESOLUTION,
     granule_metadata,
 )
-from tests.metadata.conftest import EPSG, FEBRUARY, GRANULE_ID, ULX, ULY
+from tests.metadata.conftest import EPSG, FEBRUARY, GRANULE_ID, PLATFORMS, ULX, ULY
 
 PRODUCED_AT = datetime(2026, 9, 3, 12, 0, 0, tzinfo=UTC)
 
@@ -20,7 +20,12 @@ PRODUCED_AT = datetime(2026, 9, 3, 12, 0, 0, tzinfo=UTC)
 @pytest.fixture
 def meta(granule_dir, browse_image):
     return granule_metadata(
-        "14TPN", FEBRUARY, granule_dir, browse_image, produced_at=PRODUCED_AT
+        "14TPN",
+        FEBRUARY,
+        granule_dir,
+        browse_image,
+        platforms=PLATFORMS,
+        produced_at=PRODUCED_AT,
     )
 
 
@@ -78,8 +83,20 @@ def test_size_is_the_total_of_those_files(meta, granule_dir):
     assert meta.size_bytes == expected
 
 
+def test_platforms_are_the_ones_given(meta):
+    assert meta.platforms == PLATFORMS
+
+
+def test_no_platforms_is_refused(granule_dir, browse_image):
+    """Nothing stands in for them: a stand-in would name the wrong fleet."""
+    with pytest.raises(ValueError, match="platform"):
+        granule_metadata("14TPN", FEBRUARY, granule_dir, browse_image, platforms=[])
+
+
 def test_produced_at_defaults_to_now(granule_dir, browse_image):
-    meta = granule_metadata("14TPN", FEBRUARY, granule_dir, browse_image)
+    meta = granule_metadata(
+        "14TPN", FEBRUARY, granule_dir, browse_image, platforms=PLATFORMS
+    )
 
     assert meta.produced_at.tzinfo is UTC
 

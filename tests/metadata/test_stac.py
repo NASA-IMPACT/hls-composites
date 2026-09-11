@@ -16,6 +16,7 @@ from tests.metadata.conftest import (
     GRANULE_ID,
     NDVI_DESCRIPTION,
     PIXEL,
+    PLATFORMS,
     ULX,
     ULY,
 )
@@ -26,7 +27,12 @@ PRODUCED_AT = dt.datetime(2026, 9, 3, 12, 0, 0, tzinfo=dt.UTC)
 @pytest.fixture
 def item(granule_dir, browse_image):
     meta = granule_metadata(
-        "14TPN", FEBRUARY, granule_dir, browse_image, produced_at=PRODUCED_AT
+        "14TPN",
+        FEBRUARY,
+        granule_dir,
+        browse_image,
+        platforms=PLATFORMS,
+        produced_at=PRODUCED_AT,
     )
     return to_stac_item(meta)
 
@@ -67,7 +73,9 @@ def test_no_doi_is_claimed_while_it_is_a_placeholder(item):
 
 def test_the_doi_appears_once_assigned(granule_dir, browse_image, monkeypatch):
     monkeypatch.setattr("hls_composites.metadata.stac.DOI", "10.5067/HLS/HLSM30.001")
-    meta = granule_metadata("14TPN", FEBRUARY, granule_dir, browse_image)
+    meta = granule_metadata(
+        "14TPN", FEBRUARY, granule_dir, browse_image, platforms=PLATFORMS
+    )
 
     assigned = to_stac_item(meta)
 

@@ -8,12 +8,14 @@ import pytest
 from hls_composites.metadata.echo10 import to_echo10
 from hls_composites.metadata.models import BROWSE_DESCRIPTION, granule_metadata
 from hls_composites.metadata.stac import to_stac_item
-from tests.metadata.conftest import FEBRUARY, GRANULE_ID
+from tests.metadata.conftest import FEBRUARY, GRANULE_ID, PLATFORMS
 
 
 @pytest.fixture
 def with_browse(granule_dir, browse_image):
-    return granule_metadata("14TPN", FEBRUARY, granule_dir, browse_image)
+    return granule_metadata(
+        "14TPN", FEBRUARY, granule_dir, browse_image, platforms=PLATFORMS
+    )
 
 
 class TestEcho10Browse:

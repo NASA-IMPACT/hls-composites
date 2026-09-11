@@ -19,7 +19,7 @@ from hls_composites.bands import (
     BandSpec,
 )
 from hls_composites.indices import DEFAULT_INDICES, SELECTION_INDEX, Index
-from hls_composites.models import Granule, Satellite
+from hls_composites.models import Granule
 
 CompositeOutput = Literal["indexes", "bands"]
 """Which quantity a composite is built over: spectral indices or raw bands."""
@@ -71,45 +71,6 @@ def asset_url(granule: Granule, band: BandSpec) -> str:
     """
     band_code = band.code[granule.satellite]
     return f"{granule.path}.{band_code}.tif"
-
-
-SPACECRAFT_TAG = "SPACECRAFT_NAME"
-"""GeoTIFF tag naming the spacecraft an HLS granule was observed by."""
-
-INSTRUMENTS: dict[Satellite, str] = {"L30": "OLI", "S30": "Sentinel-2 MSI"}
-"""Instrument each HLS product is observed with. Stable, unlike the spacecraft."""
-
-
-def read_platforms(granules: list[Granule]) -> list[tuple[str, str]]:
-    """Which (spacecraft, instrument) pairs actually contributed observations.
-
-    The spacecraft is read from each input's own `SPACECRAFT_NAME`, since the
-    granule ID names only the product -- and the fleet outlives any list of it.
-    A granule whose tag is missing contributes nothing rather than a guess.
-
-    Parameters
-    ----------
-    granules : list of Granule
-        The granules composited.
-
-    Returns
-    -------
-    list of tuple of str
-        `(spacecraft, instrument)` pairs, sorted and deduplicated.
-
-    Notes
-    -----
-    Reads one asset header per granule, so it must run where the inputs are
-    still reachable.
-    """
-    found = set()
-    for granule in granules:
-        url = asset_url(granule, FMASK)
-        with rio.open(url) as src:
-            spacecraft = src.tags().get(SPACECRAFT_TAG)
-        if spacecraft:
-            found.add((spacecraft, INSTRUMENTS[granule.satellite]))
-    return sorted(found)
 
 
 def compute_out_of_range_mask(bands: dict[BandSpec, np.ndarray]) -> np.ndarray:
