@@ -77,6 +77,10 @@ class HlsCompositesStack(Stack):
         }
         if settings.OUTPUT_PREFIX:
             environment["OUTPUT_PREFIX"] = settings.OUTPUT_PREFIX
+        if settings.PROCESSING_JOB_DASK_NUM_WORKERS is not None:
+            environment["DASK_NUM_WORKERS"] = str(
+                settings.PROCESSING_JOB_DASK_NUM_WORKERS
+            )
         if settings.LPDAAC_READER_ROLE_ARN:
             environment["LPDAAC_READER_ROLE_ARN"] = settings.LPDAAC_READER_ROLE_ARN
 

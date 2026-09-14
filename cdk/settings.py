@@ -64,6 +64,12 @@ class StackSettings(BaseSettings):
     PROCESSING_JOB_MEMORY_MB: int = 3_600
     PROCESSING_JOB_RETRY_ATTEMPTS: int = 3
     PROCESSING_JOB_TIMEOUT_MINUTES: int = 30
+    # Threads dask reads and composites with inside each job. Unset uses dask's
+    # default of one per core on the host instance, not per reserved vCPU, so
+    # throughput and peak memory then vary with whichever instance Batch picks.
+    # Band reads are I/O-bound, so more threads than vCPUs can pay off; each
+    # thread holds a decoded band in memory.
+    PROCESSING_JOB_DASK_NUM_WORKERS: int | None = None
     # Custom log group (otherwise logs land in the catch-all AWS Batch log group)
     PROCESSING_LOG_GROUP_NAME: str
     PROCESSING_LOG_RETENTION: logs.RetentionDays = logs.RetentionDays.ONE_MONTH
