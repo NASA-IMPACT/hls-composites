@@ -159,7 +159,7 @@ def create_composite(
             )
             browse_images = write_browse_images(computed, dest)
 
-        documents = write_metadata(
+        write_metadata(
             tile_id,
             date_range,
             dest,
@@ -167,19 +167,18 @@ def create_composite(
             inputs=granules,
             platforms=platforms,
         )
-        on_progress(f"Wrote {len(documents)} metadata documents")
 
         if isinstance(destination, S3Destination):
             # Last, so it can checksum everything else. Only for S3: its URIs
             # name where the files land, which a local run never reaches.
             prefix = object_prefix(destination.prefix, dest.name)
-            write_manifest(dest, f"s3://{destination.bucket}/{prefix}", dest.name)
-            on_progress("Wrote the CNM submission message")
+            uri = f"s3://{destination.bucket}/{prefix}"
+            write_manifest(dest, uri, dest.name)
 
             keys = upload_directory(
                 boto3.client("s3"), dest, destination.bucket, prefix
             )
-            on_progress(f"Uploaded {len(keys)} files to {destination.bucket}")
+            on_progress(f"Uploaded {len(keys)} files to {uri}")
             return CompositeResult(granule_id, len(granules), keys)
 
         on_progress(f"Wrote composite to {dest}")
