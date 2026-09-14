@@ -183,6 +183,22 @@ def test_job_definition_uses_configured_container(template):
     )
 
 
+def _job_environment(template: assertions.Template) -> dict[str, str]:
+    (job_def,) = template.find_resources("AWS::Batch::JobDefinition").values()
+    variables = job_def["Properties"]["ContainerProperties"]["Environment"]
+    return {variable["Name"]: variable["Value"] for variable in variables}
+
+
+def test_dask_num_workers_is_left_to_dask_by_default(template):
+    assert "DASK_NUM_WORKERS" not in _job_environment(template)
+
+
+def test_dask_num_workers_is_passed_to_the_job_when_set():
+    template = synth(build_settings(PROCESSING_JOB_DASK_NUM_WORKERS=8))
+
+    assert _job_environment(template)["DASK_NUM_WORKERS"] == "8"
+
+
 def test_log_group_is_explicit(template):
     template.has_resource_properties(
         "AWS::Logs::LogGroup",

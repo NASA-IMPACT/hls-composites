@@ -37,6 +37,21 @@ REQUESTER_PAYS_ENV_VAR = "AWS_REQUEST_PAYER"
 
 REQUESTER = "requester"
 
+GDAL_READ_OPTIONS = {
+    # Otherwise opening each file LISTs its S3 "directory" to look for sidecars.
+    "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+    # Otherwise GDAL probes for .aux.xml, .ovr and .msk sidecars that HLS
+    # granules never have, one failed request each.
+    "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif",
+    # A whole-band read touches adjacent tiles; fetch them in one range request.
+    "GDAL_HTTP_MERGE_CONSECUTIVE_RANGES": "YES",
+}
+"""GDAL configuration that cuts the S3 requests made per band read.
+
+A composite opens every band of every granule in its stack, so per-open
+overhead is multiplied by hundreds of files.
+"""
+
 
 @contextmanager
 def requester_pays_env() -> Iterator[None]:
@@ -64,6 +79,28 @@ def requester_pays_env() -> Iterator[None]:
             os.environ.pop(REQUESTER_PAYS_ENV_VAR, None)
         else:
             os.environ[REQUESTER_PAYS_ENV_VAR] = previous
+
+
+@contextmanager
+def gdal_read_env() -> Iterator[None]:
+    """Run the body with `GDAL_READ_OPTIONS` in the environment.
+
+    Set in the environment for the same reason as `requester_pays_env`: the
+    reads happen on dask worker threads inside GDAL. An option already set in
+    the environment is left as it is, so any of them can still be tuned per
+    run.
+
+    Yields
+    ------
+    None
+    """
+    added = [name for name in GDAL_READ_OPTIONS if name not in os.environ]
+    os.environ.update({name: GDAL_READ_OPTIONS[name] for name in added})
+    try:
+        yield
+    finally:
+        for name in added:
+            os.environ.pop(name, None)
 
 
 @contextmanager

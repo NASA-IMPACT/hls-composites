@@ -17,6 +17,7 @@ import boto3
 
 from hls_composites.aws import (
     assumed_role_env,
+    gdal_read_env,
     requester_pays_env,
     upload_directory,
 )
@@ -116,7 +117,11 @@ def create_composite(
         else:
             work_dir = destination.directory
 
-        with requester_pays_env(), assumed_role_env(role_arn) as session:
+        with (
+            requester_pays_env(),
+            gdal_read_env(),
+            assumed_role_env(role_arn) as session,
+        ):
             on_progress(
                 f"Reading via assumed role {role_arn}"
                 if role_arn
@@ -159,7 +164,7 @@ def create_composite(
             )
             browse_images = write_browse_images(computed, dest)
 
-        documents = write_metadata(
+        write_metadata(
             tile_id,
             date_range,
             dest,
@@ -167,19 +172,18 @@ def create_composite(
             inputs=granules,
             platforms=platforms,
         )
-        on_progress(f"Wrote {len(documents)} metadata documents")
 
         if isinstance(destination, S3Destination):
             # Last, so it can checksum everything else. Only for S3: its URIs
             # name where the files land, which a local run never reaches.
             prefix = object_prefix(destination.prefix, dest.name)
-            write_manifest(dest, f"s3://{destination.bucket}/{prefix}", dest.name)
-            on_progress("Wrote the CNM submission message")
+            uri = f"s3://{destination.bucket}/{prefix}"
+            write_manifest(dest, uri, dest.name)
 
             keys = upload_directory(
                 boto3.client("s3"), dest, destination.bucket, prefix
             )
-            on_progress(f"Uploaded {len(keys)} files to {destination.bucket}")
+            on_progress(f"Uploaded {len(keys)} files to {uri}")
             return CompositeResult(granule_id, len(granules), keys)
 
         on_progress(f"Wrote composite to {dest}")

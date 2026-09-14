@@ -83,6 +83,7 @@ The job definition sets:
 | `OUTPUT_BUCKET`          | Destination bucket. **Not yet read by the CLI**, which still writes to a local `--output-dir`. |
 | `LPDAAC_READER_ROLE_ARN` | Role to assume for LP DAAC reads. **Not yet read by the CLI.**                                 |
 | `PYTHONUNBUFFERED`       | Keeps logs flowing to CloudWatch.                                                              |
+| `DASK_NUM_WORKERS`       | Dask threads per job, from `PROCESSING_JOB_DASK_NUM_WORKERS`. Omitted when unset (one per host core). |
 
 Each composite directory also carries `{granule_id}.cmr.xml` (ECHO-10 granule metadata for CMR) and
 `{granule_id}_stac.json` (a STAC item). Both are written from one model, so they cannot disagree. The collection-level

@@ -8,9 +8,11 @@ from moto.core import DEFAULT_ACCOUNT_ID
 
 from hls_composites.aws import (
     CREDENTIAL_ENV_VARS,
+    GDAL_READ_OPTIONS,
     REQUESTER,
     REQUESTER_PAYS_ENV_VAR,
     assumed_role_env,
+    gdal_read_env,
     requester_pays_env,
     upload_directory,
 )
@@ -150,6 +152,38 @@ class TestRequesterPaysEnv:
             raise ZeroDivisionError
 
         assert REQUESTER_PAYS_ENV_VAR not in os.environ
+
+
+class TestGdalReadEnv:
+    @pytest.fixture(autouse=True)
+    def unset(self, monkeypatch):
+        for name in GDAL_READ_OPTIONS:
+            monkeypatch.delenv(name, raising=False)
+
+    def test_sets_every_option(self):
+        with gdal_read_env():
+            for name, value in GDAL_READ_OPTIONS.items():
+                assert os.environ[name] == value
+
+    def test_clears_them_afterwards(self):
+        with gdal_read_env():
+            pass
+
+        assert not set(GDAL_READ_OPTIONS) & set(os.environ)
+
+    def test_an_option_already_set_is_kept_and_restored(self, monkeypatch):
+        monkeypatch.setenv("GDAL_HTTP_MERGE_CONSECUTIVE_RANGES", "NO")
+
+        with gdal_read_env():
+            assert os.environ["GDAL_HTTP_MERGE_CONSECUTIVE_RANGES"] == "NO"
+
+        assert os.environ["GDAL_HTTP_MERGE_CONSECUTIVE_RANGES"] == "NO"
+
+    def test_clears_them_when_the_body_raises(self):
+        with pytest.raises(ZeroDivisionError), gdal_read_env():
+            raise ZeroDivisionError
+
+        assert not set(GDAL_READ_OPTIONS) & set(os.environ)
 
 
 class TestAssumeRole:

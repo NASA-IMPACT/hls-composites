@@ -132,6 +132,17 @@ class TestS3Destination:
         assert seen["prefix"] == "M30/data/HLS.M30.T14TPN.2015182.2015212.v2.0"
         assert result.uploaded_keys == ["key-a", "key-b"]
 
+    def test_reports_the_count_and_full_destination(self, stages, monkeypatch):
+        monkeypatch.setattr(pipeline, "upload_directory", lambda *a, **k: ["a", "b"])
+        messages: list[str] = []
+
+        run(S3Destination("out-bucket", "M30/data"), on_progress=messages.append)
+
+        assert messages[-1] == (
+            "Uploaded 2 files to "
+            "s3://out-bucket/M30/data/HLS.M30.T14TPN.2015182.2015212.v2.0"
+        )
+
     def test_builds_in_a_temporary_directory_that_is_cleaned_up(
         self, stages, monkeypatch
     ):
