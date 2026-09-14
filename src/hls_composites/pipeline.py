@@ -17,6 +17,7 @@ import boto3
 
 from hls_composites.aws import (
     assumed_role_env,
+    gdal_read_env,
     requester_pays_env,
     upload_directory,
 )
@@ -116,7 +117,11 @@ def create_composite(
         else:
             work_dir = destination.directory
 
-        with requester_pays_env(), assumed_role_env(role_arn) as session:
+        with (
+            requester_pays_env(),
+            gdal_read_env(),
+            assumed_role_env(role_arn) as session,
+        ):
             on_progress(
                 f"Reading via assumed role {role_arn}"
                 if role_arn
