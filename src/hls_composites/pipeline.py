@@ -20,7 +20,7 @@ from hls_composites.aws import (
     requester_pays_env,
     upload_directory,
 )
-from hls_composites.browse import write_browse_image
+from hls_composites.browse import write_browse_images
 from hls_composites.composite import (
     CompositeOutput,
     build_composite,
@@ -157,13 +157,13 @@ def create_composite(
                     ),
                 )
             )
-            browse = write_browse_image(computed, dest / f"{dest.name}.jpg")
+            browse_images = write_browse_images(computed, dest)
 
         documents = write_metadata(
             tile_id,
             date_range,
             dest,
-            browse,
+            browse_images,
             inputs=granules,
             platforms=platforms,
         )

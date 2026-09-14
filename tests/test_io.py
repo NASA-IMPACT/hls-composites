@@ -5,11 +5,7 @@ import rasterio
 import xarray as xr
 from rasterio.transform import from_origin
 
-from hls_composites.composite import (
-    BROWSE_BANDS,
-    DOY_LONG_NAME,
-    VALID_COUNT_LONG_NAME,
-)
+from hls_composites.composite import DOY_LONG_NAME, VALID_COUNT_LONG_NAME
 from hls_composites.indices import NDVI
 from hls_composites.io import BLOCK_SIZE, write_rasters
 from hls_composites.models import DateRange
@@ -137,22 +133,3 @@ def test_written_geotiff_omits_nodata_when_the_variable_declares_none(tmp_path):
 
     with rasterio.open(dest / "HLS.M30.T14TPN.2020183.2020213.v2.0.DOY.tif") as src:
         assert src.nodata is None
-
-
-def test_write_rasters_skips_the_browse_bands(tmp_path):
-    """R, G and B exist for the preview and are never written as products."""
-    import numpy as np
-
-    ds = _georef_dataset()
-    shape = ds[next(iter(ds.data_vars))].shape
-    for name in BROWSE_BANDS:
-        ds[name] = (("y", "x"), np.zeros(shape, dtype=np.int16))
-        ds[name].attrs["nodata"] = -9999
-
-    dest = write_rasters(
-        ds, tmp_path, "14TPN", DateRange(date(2020, 7, 1), date(2020, 7, 31))
-    )
-
-    written = {path.name.split(".")[-2] for path in dest.glob("*.tif")}
-    assert written.isdisjoint(BROWSE_BANDS)
-    assert written

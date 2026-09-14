@@ -30,9 +30,6 @@ DOY_FILL = -1
 DOY_LONG_NAME = "Day of year of the selected observation"
 """`DOY`'s band description."""
 
-BROWSE_BANDS = ("R", "G", "B")
-"""Bands composited for the browse image only; never written as products."""
-
 VALID_COUNT_FILL = 255
 """Fill value for `ValidCount`: the uint8 maximum.
 
@@ -525,13 +522,6 @@ def _composite_block(
             out[f"{index.name}_std"] = _encode_index(
                 std, index, all_nan, bounds=(0.0, index.valid_max - index.valid_min)
             )
-        # Composited for the browse image with the same per-pixel selection the
-        # indices use, so the preview shows the observations the composite is
-        # built from.
-        for name in BROWSE_BANDS:
-            spec = SPEC_BY_BAND[Band[name]]
-            selected = composite_band(reflectance[spec], best_idx, all_nan, spec.nodata)
-            out[name] = selected.astype(spec.dtype)
 
     # The QA of the observation each pixel was actually taken from, so a
     # consumer can tell water/snow/aerosol pixels apart after compositing.
@@ -732,8 +722,6 @@ def build_composite(
             template_vars[f"{index.name}_std"] = xr.zeros_like(
                 template2d, dtype=np.int16
             )
-        for name in BROWSE_BANDS:
-            template_vars[name] = xr.zeros_like(template2d, dtype=np.int16)
     template_vars[FMASK.name] = xr.zeros_like(template2d, dtype=FMASK.dtype)
     template_vars["ValidCount"] = xr.zeros_like(template2d, dtype=np.uint8)
     template_vars["DOY"] = xr.zeros_like(template2d, dtype=np.int16)
@@ -768,8 +756,6 @@ def build_composite(
                 composite[name].attrs["nodata"] = index.fill_value
                 composite[name].attrs["scale_factor"] = index.scale_factor
                 composite[name].attrs["long_name"] = long_name
-        for name in BROWSE_BANDS:
-            composite[name].attrs["nodata"] = SPEC_BY_BAND[Band[name]].nodata
     composite[FMASK.name].attrs["nodata"] = FMASK.nodata
     composite[FMASK.name].attrs["long_name"] = FMASK.long_name
     composite["ValidCount"].attrs["nodata"] = VALID_COUNT_FILL

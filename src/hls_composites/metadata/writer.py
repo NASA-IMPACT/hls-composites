@@ -16,7 +16,7 @@ def write_metadata(
     tile_id: str,
     date_range: DateRange,
     granule_dir: Path,
-    browse_image: Path,
+    browse_images: list[Path],
     platforms: list[tuple[str, str]],
     inputs: list[Granule] | None = None,
 ) -> list[Path]:
@@ -33,8 +33,8 @@ def write_metadata(
     granule_dir : pathlib.Path
         Directory holding the written GeoTIFFs; the documents are written
         alongside them.
-    browse_image : pathlib.Path
-        The rendered browse image, referenced from both documents.
+    browse_images : list of pathlib.Path
+        The rendered browse images, referenced from both documents.
     platforms : list of tuple of str
         `(platform, instrument)` pairs that contributed observations.
     inputs : list of Granule, optional
@@ -49,7 +49,7 @@ def write_metadata(
         tile_id,
         date_range,
         granule_dir,
-        browse_image,
+        browse_images,
         platforms,
         inputs=inputs,
     )
