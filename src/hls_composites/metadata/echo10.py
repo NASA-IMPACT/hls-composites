@@ -8,7 +8,6 @@ import datetime as dt
 from xml.etree import ElementTree
 
 from hls_composites.metadata.models import (
-    BROWSE_DESCRIPTION,
     COMPOSITING_ALGORITHM,
     DATA_FORMAT,
     DATASET_ID,
@@ -19,6 +18,8 @@ from hls_composites.metadata.models import (
     SPATIAL_RESOLUTION,
     VERSION_ID,
     GranuleMetadata,
+    browse_description,
+    browse_media_type,
 )
 
 _TIMESTAMP = "%Y-%m-%dT%H:%M:%S.%fZ"
@@ -138,14 +139,19 @@ def to_echo10(meta: GranuleMetadata) -> str:
     _sub(granule, "OnlineAccessURLs")
     _sub(granule, "OnlineResources")
     _sub(granule, "DataFormat", DATA_FORMAT)
-    browse_urls = _sub(granule, "AssociatedBrowseImageUrls")
-    provider_url = _sub(browse_urls, "ProviderBrowseUrl")
-    _sub(
-        provider_url,
-        "URL",
-        f"{PRODUCT_URI_BASE}/{meta.granule_id}/{meta.browse_image.name}",
-    )
-    _sub(provider_url, "Description", BROWSE_DESCRIPTION)
+    # The schema requires at least one ProviderBrowseUrl when the container
+    # is present, so a granule without browse images omits it.
+    if meta.browse_images:
+        browse_urls = _sub(granule, "AssociatedBrowseImageUrls")
+        for image in meta.browse_images:
+            provider_url = _sub(browse_urls, "ProviderBrowseUrl")
+            _sub(
+                provider_url,
+                "URL",
+                f"{PRODUCT_URI_BASE}/{meta.granule_id}/{image.name}",
+            )
+            _sub(provider_url, "Description", browse_description(image))
+            _sub(provider_url, "MimeType", browse_media_type(image))
 
     ElementTree.indent(granule, space="  ")
     body = ElementTree.tostring(granule, encoding="unicode")

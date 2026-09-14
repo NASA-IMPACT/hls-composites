@@ -17,12 +17,12 @@ PRODUCED_AT = dt.datetime(2026, 9, 3, 12, 0, 0, tzinfo=dt.UTC)
 
 
 @pytest.fixture
-def root(granule_dir, browse_image):
+def root(granule_dir, browse_images):
     meta = granule_metadata(
         "14TPN",
         FEBRUARY,
         granule_dir,
-        browse_image,
+        browse_images,
         platforms=PLATFORMS,
         produced_at=PRODUCED_AT,
     )
@@ -111,13 +111,13 @@ def test_required_additional_attributes_are_present(root):
         assert attribute(root, name), f"{name} has no value"
 
 
-def test_spatial_coverage_is_rounded_to_whole_percent(granule_dir, browse_image):
+def test_spatial_coverage_is_rounded_to_whole_percent(granule_dir, browse_images):
     """The daily products declare an integer percent, so a composite does too."""
     meta = granule_metadata(
         "14TPN",
         FEBRUARY,
         granule_dir,
-        browse_image,
+        browse_images,
         platforms=PLATFORMS,
         produced_at=PRODUCED_AT,
     )
@@ -173,9 +173,9 @@ def test_data_format_is_declared(root):
     assert root.findtext("DataFormat") == "Cloud Optimized GeoTIFF (COG)"
 
 
-def test_document_has_an_xml_declaration(granule_dir, browse_image):
+def test_document_has_an_xml_declaration(granule_dir, browse_images):
     meta = granule_metadata(
-        "14TPN", FEBRUARY, granule_dir, browse_image, platforms=PLATFORMS
+        "14TPN", FEBRUARY, granule_dir, browse_images, platforms=PLATFORMS
     )
 
     assert to_echo10(meta).startswith("<?xml")
@@ -214,11 +214,11 @@ def test_parse_platforms_reads_every_platform():
     ]
 
 
-def test_parse_platforms_round_trips_what_to_echo10_writes(granule_dir, browse_image):
+def test_parse_platforms_round_trips_what_to_echo10_writes(granule_dir, browse_images):
     """The inputs and the composite share one schema, so the reader reads both."""
     platforms = [("LANDSAT-9", "OLI"), ("Sentinel-2C", "Sentinel-2 MSI")]
     meta = granule_metadata(
-        "14TPN", FEBRUARY, granule_dir, browse_image, platforms=platforms
+        "14TPN", FEBRUARY, granule_dir, browse_images, platforms=platforms
     )
 
     assert parse_platforms(to_echo10(meta).encode()) == platforms

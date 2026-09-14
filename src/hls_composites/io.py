@@ -20,7 +20,6 @@ import xarray as xr
 from affine import Affine
 from rasterio.crs import CRS
 
-from hls_composites.composite import BROWSE_BANDS
 from hls_composites.crs import corrected_grid, crs_name
 from hls_composites.models import DateRange, composite_id
 
@@ -143,9 +142,6 @@ def write_rasters(
     arrays can also feed the browse-image renderer without a second pass over
     the graph.
 
-    Variables named in `BROWSE_BANDS` are skipped: they are composited for the
-    browse image and are not products.
-
     Parameters
     ----------
     computed : xarray.Dataset
@@ -187,8 +183,6 @@ def write_rasters(
     )
 
     for name, array in computed.data_vars.items():
-        if name in BROWSE_BANDS:
-            continue
         _write_cog(
             dest / f"{granule_id}.{name}.tif",
             array,

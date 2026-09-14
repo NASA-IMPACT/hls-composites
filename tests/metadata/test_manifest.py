@@ -16,7 +16,7 @@ BUCKET_URI = f"s3://out-bucket/M30/data/{GRANULE_ID}"
 
 
 @pytest.fixture
-def written(granule_dir, browse_image):
+def written(granule_dir, browse_images):
     """A granule directory with every artefact, then its manifest."""
     (granule_dir / f"{GRANULE_ID}.cmr.xml").write_bytes(b"<Granule/>")
     (granule_dir / f"{GRANULE_ID}_stac.json").write_bytes(b"{}")
@@ -68,7 +68,7 @@ class TestManifest:
             f"{GRANULE_ID}.ValidCount.tif": "data",
             f"{GRANULE_ID}.cmr.xml": "metadata",
             f"{GRANULE_ID}_stac.json": "metadata",
-            f"{GRANULE_ID}.jpg": "browse",
+            f"{GRANULE_ID}.NDVI.png": "browse",
         }
 
     def test_does_not_list_itself(self, written):
@@ -100,7 +100,7 @@ class TestManifest:
             write_manifest(empty, BUCKET_URI, empty.name)
 
     def test_defaults_its_identifier_to_the_job(
-        self, granule_dir, browse_image, monkeypatch
+        self, granule_dir, browse_images, monkeypatch
     ):
         monkeypatch.setenv("AWS_BATCH_JOB_ID", "batch-xyz")
 

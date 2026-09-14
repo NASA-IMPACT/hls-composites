@@ -76,8 +76,8 @@ def granule_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def browse_image(granule_dir: Path) -> Path:
-    """The preview every granule carries."""
-    path = granule_dir / f"{GRANULE_ID}.jpg"
-    path.write_bytes(b"jpeg")
-    return path
+def browse_images(granule_dir: Path) -> list[Path]:
+    """One preview per index the granule carries."""
+    path = granule_dir / f"{GRANULE_ID}.NDVI.png"
+    path.write_bytes(b"png")
+    return [path]

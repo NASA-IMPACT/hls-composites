@@ -26,12 +26,12 @@ PRODUCED_AT = dt.datetime(2026, 9, 3, 12, 0, 0, tzinfo=dt.UTC)
 
 
 @pytest.fixture
-def item(granule_dir, browse_image):
+def item(granule_dir, browse_images):
     meta = granule_metadata(
         "14TPN",
         FEBRUARY,
         granule_dir,
-        browse_image,
+        browse_images,
         platforms=PLATFORMS,
         produced_at=PRODUCED_AT,
     )
@@ -72,10 +72,10 @@ def test_no_doi_is_claimed_while_it_is_a_placeholder(item):
     assert SCIENTIFIC_SCHEMA_URI not in item["stac_extensions"]
 
 
-def test_the_doi_appears_once_assigned(granule_dir, browse_image, monkeypatch):
+def test_the_doi_appears_once_assigned(granule_dir, browse_images, monkeypatch):
     monkeypatch.setattr("hls_composites.metadata.stac.DOI", "10.5067/HLS/HLSM30.001")
     meta = granule_metadata(
-        "14TPN", FEBRUARY, granule_dir, browse_image, platforms=PLATFORMS
+        "14TPN", FEBRUARY, granule_dir, browse_images, platforms=PLATFORMS
     )
 
     assigned = to_stac_item(meta)
@@ -151,22 +151,22 @@ def test_item_names_the_platforms_that_contributed(item):
     assert "platform" not in item["properties"]
 
 
-def test_an_instrument_on_several_platforms_is_listed_once(granule_dir, browse_image):
+def test_an_instrument_on_several_platforms_is_listed_once(granule_dir, browse_images):
     meta = granule_metadata(
         "14TPN",
         FEBRUARY,
         granule_dir,
-        browse_image,
+        browse_images,
         platforms=[("LANDSAT-8", "OLI"), ("LANDSAT-9", "OLI")],
     )
 
     assert to_stac_item(meta)["properties"]["instruments"] == ["oli"]
 
 
-def test_an_instrument_with_no_stac_name_is_refused(granule_dir, browse_image):
+def test_an_instrument_with_no_stac_name_is_refused(granule_dir, browse_images):
     """A guessed spelling would not match the daily items it is filtered with."""
     meta = granule_metadata(
-        "14TPN", FEBRUARY, granule_dir, browse_image, platforms=PLATFORMS
+        "14TPN", FEBRUARY, granule_dir, browse_images, platforms=PLATFORMS
     )
     unknown = replace(meta, platforms=[("LANDSAT-10", "OLI-3")])
 

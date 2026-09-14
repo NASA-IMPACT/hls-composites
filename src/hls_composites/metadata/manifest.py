@@ -18,7 +18,7 @@ COLLECTION = "HLSM30"
 MANIFEST_SUFFIX = ".cnm.json"
 """Suffix chosen so the manifest is not selected into its own file list.
 
-`hls_manifest` picks up `.tif`, `.jpg`, `.xml`, and `_stac.json`; a file cannot
+`hls_manifest` picks up `.tif`, `.jpg`, `.png`, `.xml`, and `_stac.json`; a file cannot
 checksum itself.
 """
 

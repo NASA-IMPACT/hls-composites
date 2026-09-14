@@ -61,7 +61,9 @@ def stages(monkeypatch, tmp_path):
     # Metadata reads the written rasters, which these stubs do not produce.
     # Tests that care about it override this.
     monkeypatch.setattr(pipeline, "write_metadata", lambda *a, **k: [])
-    monkeypatch.setattr(pipeline, "write_browse_image", lambda computed, path: path)
+    monkeypatch.setattr(
+        pipeline, "write_browse_images", lambda computed, granule_dir: []
+    )
     monkeypatch.setattr(pipeline, "write_manifest", lambda *a, **k: None)
     # No boto3 stub: discovery and upload are faked, so the clients the
     # pipeline builds are never used to make a request.
@@ -221,18 +223,23 @@ class TestMetadata:
         written: dict = {}
 
         def fake_write_metadata(
-            tile_id, date_range, granule_dir, browse_image, inputs=None, platforms=None
+            tile_id, date_range, granule_dir, browse_images, inputs=None, platforms=None
         ):
             written.update(
                 tile_id=tile_id,
                 granule_dir=Path(granule_dir),
                 platforms=platforms,
                 inputs=list(inputs or []),
-                browse_image=browse_image,
+                browse_images=browse_images,
             )
             return []
 
         monkeypatch.setattr(pipeline, "write_metadata", fake_write_metadata)
+        monkeypatch.setattr(
+            pipeline,
+            "write_browse_images",
+            lambda computed, granule_dir: [granule_dir / "a.NDVI.png"],
+        )
 
         run(LocalDestination(tmp_path))
 
@@ -240,8 +247,8 @@ class TestMetadata:
         assert written["granule_dir"] == stages["write"]["dest"]
         # Provenance: the discovered granules reach the metadata.
         assert written["inputs"] == GRANULES
-        # The rendered preview is referenced from the metadata.
-        assert written["browse_image"].name.endswith(".jpg")
+        # The rendered previews are referenced from the metadata.
+        assert written["browse_images"] == [stages["write"]["dest"] / "a.NDVI.png"]
 
     def test_no_metadata_when_no_granules_were_found(
         self, stages, monkeypatch, tmp_path

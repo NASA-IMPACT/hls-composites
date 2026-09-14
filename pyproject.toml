@@ -55,7 +55,7 @@ deploy = [
 ]
 
 [tool.uv.sources]
-hls-manifest = { url = "https://github.com/NASA-IMPACT/hls-manifest/releases/download/v2.4/hls_manifest-2.4-py3-none-any.whl" }
+hls-manifest = { url = "https://github.com/NASA-IMPACT/hls-manifest/releases/download/v2.5/hls_manifest-2.5-py3-none-any.whl" }
 batch-event-job-monitor = { url = "https://github.com/NASA-IMPACT/batch-event-job-monitor/releases/download/v0.1.1/batch_event_job_monitor-0.1.1-py3-none-any.whl" }
 
 [build-system]

@@ -9,6 +9,7 @@ it, and reading the files describes what was actually produced.
 """
 
 import datetime as dt
+import mimetypes
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -47,8 +48,6 @@ COMPOSITING_ALGORITHM = (
     "Per-pixel selection of the observation closest to the median EVI2"
 )
 DATA_FORMAT = "Cloud Optimized GeoTIFF (COG)"
-BROWSE_DESCRIPTION = "Browse image"
-"""Description the DAAC shows for the browse image."""
 SPATIAL_RESOLUTION = 30.0
 DAY_NIGHT_FLAG = "DAY"
 
@@ -167,8 +166,8 @@ class GranuleMetadata:
         Total size of those files.
     inputs : list of InputGranule
         The granules composited, in discovery order. Empty when unknown.
-    browse_image : pathlib.Path
-        The rendered browse image. Every granule has one.
+    browse_images : list of pathlib.Path
+        The rendered browse images, one per spectral index.
     """
 
     granule_id: str
@@ -193,8 +192,26 @@ class GranuleMetadata:
     assets: list[Path]
     asset_bands: list[AssetBand]
     size_bytes: int
-    browse_image: Path
+    browse_images: list[Path]
     inputs: list[InputGranule] = field(default_factory=list)
+
+
+def browse_index(image: Path) -> str:
+    """Index a browse image renders, from its ``{granule_id}.{index}.png`` name."""
+    return image.stem.rsplit(".", 1)[-1]
+
+
+def browse_media_type(image: Path) -> str:
+    """MIME type of a browse image, from its extension."""
+    media_type, _ = mimetypes.guess_type(image.name)
+    if media_type is None:
+        raise ValueError(f"unknown media type for browse image {image.name}")
+    return media_type
+
+
+def browse_description(image: Path) -> str:
+    """Description the DAAC shows for a browse image."""
+    return f"{browse_index(image)} browse image"
 
 
 def _spatial_coverage(valid_count_path: Path) -> float:
@@ -225,7 +242,7 @@ def granule_metadata(
     tile_id: str,
     date_range: DateRange,
     granule_dir: Path,
-    browse_image: Path,
+    browse_images: list[Path],
     platforms: list[tuple[str, str]],
     inputs: list[Granule] | None = None,
     produced_at: dt.datetime | None = None,
@@ -240,8 +257,8 @@ def granule_metadata(
         Period composited over.
     granule_dir : pathlib.Path
         Directory holding the written GeoTIFFs.
-    browse_image : pathlib.Path
-        The rendered browse image, referenced from both documents.
+    browse_images : list of pathlib.Path
+        The rendered browse images, referenced from both documents.
     platforms : list of tuple of str
         `(platform, instrument)` pairs that contributed observations, from
         `discovery.read_platforms`.
@@ -307,6 +324,6 @@ def granule_metadata(
         assets=assets,
         asset_bands=_asset_bands(assets),
         size_bytes=sum(path.stat().st_size for path in assets),
-        browse_image=browse_image,
+        browse_images=browse_images,
         inputs=_provenance(inputs or []),
     )

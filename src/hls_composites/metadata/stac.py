@@ -17,11 +17,13 @@ from pystac.utils import datetime_to_str
 
 from hls_composites.crs import mgrs_fields
 from hls_composites.metadata.models import (
-    BROWSE_DESCRIPTION,
     DOI,
     PLACEHOLDER,
     AssetBand,
     GranuleMetadata,
+    browse_description,
+    browse_index,
+    browse_media_type,
 )
 
 PROJECTION_SCHEMA_URI = (
@@ -169,14 +171,15 @@ def to_stac_item(meta: GranuleMetadata) -> dict[str, Any]:
             ),
         )
 
-    item.add_asset(
-        "thumbnail",
-        pystac.Asset(
-            href=meta.browse_image.name,
-            media_type=pystac.MediaType.JPEG,
-            roles=["thumbnail"],
-            description=BROWSE_DESCRIPTION,
-        ),
-    )
+    for image in meta.browse_images:
+        item.add_asset(
+            f"{browse_index(image)}_browse",
+            pystac.Asset(
+                href=image.name,
+                media_type=browse_media_type(image),
+                roles=["thumbnail"],
+                description=browse_description(image),
+            ),
+        )
 
     return item.to_dict(include_self_link=False)
