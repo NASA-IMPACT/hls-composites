@@ -984,7 +984,7 @@ requires-dist = [
     { name = "boto3", specifier = ">=1.35.0" },
     { name = "click", specifier = ">=8.1.0" },
     { name = "dask", specifier = ">=2025.10.0" },
-    { name = "hls-manifest", url = "https://github.com/NASA-IMPACT/hls-manifest/releases/download/v2.4/hls_manifest-2.4-py3-none-any.whl" },
+    { name = "hls-manifest", url = "https://github.com/NASA-IMPACT/hls-manifest/releases/download/v2.5/hls_manifest-2.5-py3-none-any.whl" },
     { name = "numpy", specifier = ">=2.1.0" },
     { name = "pillow", specifier = ">=11" },
     { name = "pystac", specifier = ">=1.12" },
@@ -1019,14 +1019,14 @@ seed = [{ name = "earthaccess", specifier = ">=0.18.0" }]
 
 [[package]]
 name = "hls-manifest"
-version = "2.4"
-source = { url = "https://github.com/NASA-IMPACT/hls-manifest/releases/download/v2.4/hls_manifest-2.4-py3-none-any.whl" }
+version = "2.5"
+source = { url = "https://github.com/NASA-IMPACT/hls-manifest/releases/download/v2.5/hls_manifest-2.5-py3-none-any.whl" }
 dependencies = [
     { name = "click" },
     { name = "jsonschema" },
 ]
 wheels = [
-    { url = "https://github.com/NASA-IMPACT/hls-manifest/releases/download/v2.4/hls_manifest-2.4-py3-none-any.whl", hash = "sha256:74bba8730f36a07db37bcb8cf9861617e87998fb6c64e795822de128a1a12f76" },
+    { url = "https://github.com/NASA-IMPACT/hls-manifest/releases/download/v2.5/hls_manifest-2.5-py3-none-any.whl", hash = "sha256:8c3ad567d38ea077251b1eb4641dc385de180dfb3a5aa66427aa614288057571" },
 ]
 
 [package.metadata]
