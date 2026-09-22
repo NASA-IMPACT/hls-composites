@@ -1,8 +1,8 @@
 # hls-composites
 
-Monthly, cloud-free composites of Harmonized Landsat Sentinel-2 (HLS) vegetation indexes. Vegetation indexes NDVI, EVI,
-and NBR are produced as monthly composites per MGRS grid tile. The pixel selection criteria is the observation whose
-EVI2 is closest to that pixel's median EVI2 over the month.
+Monthly, cloud-free composites of Harmonized Landsat Sentinel-2 (HLS) spectral indexes. Spectral indexes NDVI, EVI, and
+NBR are produced as monthly composites per MGRS grid tile. The pixel selection criterion is the observation whose EVI2
+is closest to that pixel's median EVI2 over the month.
 
 This repository contains three main components:
 
@@ -29,9 +29,9 @@ A granule directory is named for the tile and the day-of-year bounds of the mont
 
 All imagery data (indexes, standard deviations, & QA bands) are Cloud Optimized GeoTIFFs (COGs) with overviews.
 
-# Developer Setup
+## Developer Setup
 
-## Running it
+### Running it
 
 This project uses the `uv` package and project manager, so you'll first want to make sure that is installed (see
 [documentation](https://docs.astral.sh/uv/getting-started/installation/)).
@@ -39,7 +39,7 @@ This project uses the `uv` package and project manager, so you'll first want to 
 Once `uv` is installed, you can install the project using:
 
 ```bash
-# Fully set of test and developer dependencies
+# Full set of test and developer dependencies
 uv sync --all-groups
 
 # Minimal dependencies
@@ -76,7 +76,7 @@ Options:
   --help                  Show this message and exit.
 ```
 
-## Linting, formatting, and tests
+### Linting, formatting, and tests
 
 We have a suite of helper scripts that define our commonly used developer workflows in a single place:
 
@@ -87,9 +87,9 @@ scripts/format      # ruff --fix + format
 scripts/typecheck   # mypy
 ```
 
-## Local development
+### Local development
 
-While you _could_ run the CLI locally on your host machine, the pipeline reads the original HLS project from S3 buckets
+While you _could_ run the CLI locally on your host machine, the pipeline reads the original HLS products from S3 buckets
 directly using an AWS IAM role that the LP DAAC have blessed for direct bucket access. To help mitigate this trouble, we
 provide a Docker Compose based local developer setup that fakes the LP DAAC protected bucket.
 
