@@ -77,12 +77,12 @@ npx aws-cdk@v2 synth
 
 The job definition sets:
 
-| Variable                 | Meaning                                                                                        |
-| ------------------------ | ---------------------------------------------------------------------------------------------- |
-| `HLS_BUCKET`             | Input bucket the CLI scans for granules. Already read by `hls_composites`.                     |
-| `OUTPUT_BUCKET`          | Destination bucket. **Not yet read by the CLI**, which still writes to a local `--output-dir`. |
-| `LPDAAC_READER_ROLE_ARN` | Role to assume for LP DAAC reads. **Not yet read by the CLI.**                                 |
-| `PYTHONUNBUFFERED`       | Keeps logs flowing to CloudWatch.                                                              |
+| Variable                 | Meaning                                                                                               |
+| ------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `HLS_BUCKET`             | Input bucket the CLI scans for granules. Already read by `hls_composites`.                            |
+| `OUTPUT_BUCKET`          | Destination bucket.                                                                                   |
+| `LPDAAC_READER_ROLE_ARN` | Role to assume for LP DAAC reads.                                                                     |
+| `PYTHONUNBUFFERED`       | Keeps logs flowing to CloudWatch.                                                                     |
 | `DASK_NUM_WORKERS`       | Dask threads per job, from `PROCESSING_JOB_DASK_NUM_WORKERS`. Omitted when unset (one per host core). |
 
 Each composite directory also carries `{granule_id}.cmr.xml` (ECHO-10 granule metadata for CMR) and
@@ -91,5 +91,3 @@ values they carry -- short name, dataset ID, DOI, product URI, and the compositi
 constants in `src/hls_composites/metadata/models.py`. Those the DAAC has not assigned yet are the literal string
 `PLACEHOLDER`; the STAC item omits `sci:doi` entirely until a real DOI exists, since the scientific extension validates
 it against a DOI pattern.
-
-The IAM permissions for the last two are in place so the corresponding application changes have somewhere to land.
