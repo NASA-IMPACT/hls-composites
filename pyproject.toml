@@ -1,10 +1,10 @@
 [project]
 name = "hls-composites"
 version = "0.1.0"
-description = "Add your description here"
+description = "Monthly, cloud-free composites of Harmonized Landsat Sentinel-2 (HLS) vegetation indexes."
 readme = "README.md"
 authors = [
-    { name = "Chris Holden", email = "ceholden@gmail.com" }
+    { name = "Chris Holden", email = "chris@developmentseed.org" }
 ]
 requires-python = ">=3.12"
 dependencies = [
