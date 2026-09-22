@@ -116,5 +116,9 @@ Outputs land in `./out`; the MinIO console is at <http://localhost:9001>.
 
 ## Deployment
 
-AWS Batch on spot EC2, deployed with the CDK: dev on every push to `main`, prod on release. See
-[docs/deployment.md](docs/deployment.md) for the stack's resources, configuration, and how to submit jobs by hand.
+This project is deployed with the CDK:
+
+- `dev` environment deployed on every push to `main`
+- `prod` environment deployed on every release
+
+See [docs/deployment.md](docs/deployment.md) for the stack's resources, configuration, and how to submit jobs by hand.
