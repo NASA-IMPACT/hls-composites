@@ -19,15 +19,33 @@ The AWS Batch infrastructure that runs the `hls-composites` container lives in `
 | Job role            | `hls-composites-processing-role-{stage}` -- the container's own credentials |
 | Log group           | `PROCESSING_LOG_GROUP_NAME`, `PROCESSING_LOG_RETENTION` retention           |
 
-You can submit jobs manually using AWS CLI for backfills or testing:
+## Submitting jobs by hand
+
+Use `scripts/submit-job` for backfills and testing:
+
+```bash
+scripts/submit-job --tile-id 14TPN --year-month 2020-07 \
+  --job-queue hls-composites-dev-job-queue \
+  --job-definition hls-composites-dev-job-definition
+```
+
+It submits through the job monitor's `JobGroup`, which carries the `bejm_*` identity fields in the job's Batch
+parameters. The monitor only tracks jobs that have them, so a job submitted any other way runs but never appears in
+its records or in the Athena tables. The script defaults to `us-west-2`; pass `--region` for anything else.
+
+`aws batch submit-job` still works for a one-off you do not need tracked:
 
 ```bash
 aws batch submit-job \
   --job-name composite-14TPN-2020-07 \
   --job-queue hls-composites-dev-job-queue \
   --job-definition <JobDefinitionArn from the stack outputs> \
-  --container-overrides 'command=["--tile-id","14TPN","--year-month","2020-07","--output-dir","/tmp/out"]'
+  --container-overrides 'command=["--tile-id","14TPN","--year-month","2020-07"]'
 ```
+
+The job definition already sets `OUTPUT_BUCKET` and `OUTPUT_PREFIX`, so the composite is uploaded to S3. You _could_
+pass your own `--output-bucket` to upload elsewhere, BUT the IAM role would need to be manually updated to include
+permissions to write to that bucket.
 
 ## Configuration
 
