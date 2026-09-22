@@ -19,15 +19,33 @@ The AWS Batch infrastructure that runs the `hls-composites` container lives in `
 | Job role            | `hls-composites-processing-role-{stage}` -- the container's own credentials |
 | Log group           | `PROCESSING_LOG_GROUP_NAME`, `PROCESSING_LOG_RETENTION` retention           |
 
-You can submit jobs manually using AWS CLI for backfills or testing:
+## Submitting jobs by hand
+
+Use `scripts/submit-job` for backfills and testing:
+
+```bash
+scripts/submit-job --tile-id 14TPN --year-month 2020-07 \
+  --job-queue hls-composites-dev-job-queue \
+  --job-definition hls-composites-dev-job-definition
+```
+
+It submits through the job monitor's `JobGroup`, which carries the `bejm_*` identity fields in the job's Batch
+parameters. The monitor only tracks jobs that have them, so a job submitted any other way runs but never appears in
+its records or in the Athena tables. The script defaults to `us-west-2`; pass `--region` for anything else.
+
+`aws batch submit-job` still works for a one-off you do not need tracked:
 
 ```bash
 aws batch submit-job \
   --job-name composite-14TPN-2020-07 \
   --job-queue hls-composites-dev-job-queue \
   --job-definition <JobDefinitionArn from the stack outputs> \
-  --container-overrides 'command=["--tile-id","14TPN","--year-month","2020-07","--output-dir","/tmp/out"]'
+  --container-overrides 'command=["--tile-id","14TPN","--year-month","2020-07"]'
 ```
+
+The job definition already sets `OUTPUT_BUCKET` and `OUTPUT_PREFIX`, so the composite is uploaded to S3. You _could_
+pass your own `--output-bucket` to upload elsewhere, BUT the IAM role would need to be manually updated to include
+permissions to write to that bucket.
 
 ## Configuration
 
@@ -41,7 +59,7 @@ Set these as **variables** on the GitHub environments `dev` and `prod`:
 - `AWS_ROLE_TO_ASSUME_ARN` -- the deploy role assumed via OIDC
 - `STACK_NAME`, `STAGE`
 - `MCP_ACCOUNT_ID`, `MCP_ACCOUNT_REGION`, `MCP_IAM_PERMISSION_BOUNDARY_ARN`, `VPC_ID`
-- `INPUT_BUCKET_NAME`, `OUTPUT_BUCKET_NAME`, `OUTPUT_PREFIX`, `PROCESSING_BUCKET_NAME`
+- `INPUT_BUCKET_NAME`, `OUTPUT_BUCKET_NAME`, `OUTPUT_PREFIX`, `PROCESSING_BUCKET_NAME_PREFIX`
 - `ATHENA_DATABASE_NAME`, `ATHENA_INVENTORY_START_DATETIME`
 - `PROCESSING_CONTAINER_ECR_URI`, `PROCESSING_LOG_GROUP_NAME`
 - optionally `LPDAAC_READER_ROLE_ARN` and any of the tuning settings
@@ -77,12 +95,12 @@ npx aws-cdk@v2 synth
 
 The job definition sets:
 
-| Variable                 | Meaning                                                                                        |
-| ------------------------ | ---------------------------------------------------------------------------------------------- |
-| `HLS_BUCKET`             | Input bucket the CLI scans for granules. Already read by `hls_composites`.                     |
-| `OUTPUT_BUCKET`          | Destination bucket. **Not yet read by the CLI**, which still writes to a local `--output-dir`. |
-| `LPDAAC_READER_ROLE_ARN` | Role to assume for LP DAAC reads. **Not yet read by the CLI.**                                 |
-| `PYTHONUNBUFFERED`       | Keeps logs flowing to CloudWatch.                                                              |
+| Variable                 | Meaning                                                                                               |
+| ------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `HLS_BUCKET`             | Input bucket the CLI scans for granules. Already read by `hls_composites`.                            |
+| `OUTPUT_BUCKET`          | Destination bucket.                                                                                   |
+| `LPDAAC_READER_ROLE_ARN` | Role to assume for LP DAAC reads.                                                                     |
+| `PYTHONUNBUFFERED`       | Keeps logs flowing to CloudWatch.                                                                     |
 | `DASK_NUM_WORKERS`       | Dask threads per job, from `PROCESSING_JOB_DASK_NUM_WORKERS`. Omitted when unset (one per host core). |
 
 Each composite directory also carries `{granule_id}.cmr.xml` (ECHO-10 granule metadata for CMR) and
@@ -91,5 +109,3 @@ values they carry -- short name, dataset ID, DOI, product URI, and the compositi
 constants in `src/hls_composites/metadata/models.py`. Those the DAAC has not assigned yet are the literal string
 `PLACEHOLDER`; the STAC item omits `sci:doi` entirely until a real DOI exists, since the scientific extension validates
 it against a DOI pattern.
-
-The IAM permissions for the last two are in place so the corresponding application changes have somewhere to land.

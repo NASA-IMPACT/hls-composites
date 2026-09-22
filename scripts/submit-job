@@ -1,4 +1,6 @@
 #!/usr/bin/env -S uv run --group deploy --script
+# -*- mode: python -*-
+# vim: set ft=python:
 """Submit one tile-month composite job, tagged for the job monitor.
 
 The monitor only tracks jobs whose Batch parameters carry the `bejm_*` identity
