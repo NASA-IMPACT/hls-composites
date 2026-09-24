@@ -133,3 +133,24 @@ def test_written_geotiff_omits_nodata_when_the_variable_declares_none(tmp_path):
 
     with rasterio.open(dest / "HLS.M30.T14TPN.2020183.2020213.v2.0.DOY.tif") as src:
         assert src.nodata is None
+
+
+def test_write_rasters_writes_each_band_with_its_declared_predictor(tmp_path):
+    """A band's own `predictor` attr wins over the creation options."""
+    ds = _georef_dataset()
+    shape = ds[next(iter(ds.data_vars))].shape
+    for name, predictor in (("NDVI_std", 1), ("ValidCount", 1)):
+        ds[name] = (("y", "x"), np.zeros(shape, dtype=np.int16))
+        ds[name].attrs["predictor"] = predictor
+
+    dest = write_rasters(
+        ds, tmp_path, "14TPN", DateRange(date(2020, 7, 1), date(2020, 7, 31))
+    )
+
+    written = {
+        path.name.split(".")[-2]: rasterio.open(path).tags(ns="IMAGE_STRUCTURE")
+        for path in dest.glob("*.tif")
+    }
+    assert written["NDVI"]["PREDICTOR"] == "2"
+    assert "PREDICTOR" not in written["NDVI_std"]
+    assert "PREDICTOR" not in written["ValidCount"]
