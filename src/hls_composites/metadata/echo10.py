@@ -58,7 +58,7 @@ def _additional_attributes(meta: GranuleMetadata) -> list[tuple[str, list[str]]]
         ("REF_SCALE_FACTOR", str(meta.scale_factor)),
         ("ADD_OFFSET", str(meta.add_offset)),
         ("FILLVALUE", str(meta.fill_value)),
-        ("QA_FILL_VALUE", str(meta.qa_fill_value)),
+        ("QA_FILLVALUE", str(meta.qa_fill_value)),
         ("NCOLS", str(meta.ncols)),
         ("NROWS", str(meta.nrows)),
         ("COMPOSITING_ALGORITHM", COMPOSITING_ALGORITHM),
