@@ -16,10 +16,11 @@ from pathlib import Path
 import rasterio
 from rasterio.warp import transform_bounds
 
-from hls_composites.composite import VALID_COUNT_FILL, spatial_coverage
+from hls_composites.composite import spatial_coverage
 from hls_composites.crs import crs_name
 from hls_composites.indices import NDVI
 from hls_composites.models import DateRange, Granule, composite_id
+from hls_composites.outputs import fill_attributes
 
 PLACEHOLDER = "PLACEHOLDER"
 """Stands in for a value the DAAC has not assigned yet.
@@ -156,8 +157,9 @@ class GranuleMetadata:
         `(platform, instrument)` pairs that contributed observations.
     scale_factor, add_offset : float
         Encoding of the index rasters.
-    fill_value, qa_fill_value : int
-        Fill values of the index rasters and of ``ValidCount``.
+    fill_values : dict of str to int
+        Fill value of every written band, keyed by the ECHO-10 attribute
+        naming it (see `outputs.fill_attributes`).
     asset_bands : list of AssetBand
         How each written COG describes its own band.
     assets : list of pathlib.Path
@@ -187,8 +189,7 @@ class GranuleMetadata:
     platforms: list[tuple[str, str]]
     scale_factor: float
     add_offset: float
-    fill_value: int
-    qa_fill_value: int
+    fill_values: dict[str, int]
     assets: list[Path]
     asset_bands: list[AssetBand]
     size_bytes: int
@@ -301,6 +302,7 @@ def granule_metadata(
     coverage = _spatial_coverage(valid_count) if valid_count.exists() else 0.0
 
     index = NDVI()
+    asset_bands = _asset_bands(assets)
     return GranuleMetadata(
         granule_id=composite_id(tile_id, date_range),
         tile_id=tile_id,
@@ -319,10 +321,9 @@ def granule_metadata(
         platforms=platforms,
         scale_factor=index.scale_factor,
         add_offset=0.0,
-        fill_value=index.fill_value,
-        qa_fill_value=VALID_COUNT_FILL,
+        fill_values=fill_attributes({band.name: band.nodata for band in asset_bands}),
         assets=assets,
-        asset_bands=_asset_bands(assets),
+        asset_bands=asset_bands,
         size_bytes=sum(path.stat().st_size for path in assets),
         browse_images=browse_images,
         inputs=_provenance(inputs or []),

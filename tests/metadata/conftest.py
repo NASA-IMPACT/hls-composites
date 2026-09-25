@@ -8,8 +8,8 @@ import pytest
 import rasterio
 from rasterio.transform import from_origin
 
-from hls_composites.composite import VALID_COUNT_FILL
 from hls_composites.models import DateRange
+from hls_composites.outputs import VALID_COUNT
 
 GRANULE_ID = "HLS.M30.T14TPN.2020032.2020060.v2.0"
 FEBRUARY = DateRange(date(2020, 2, 1), date(2020, 2, 29))
@@ -60,8 +60,8 @@ def granule_dir(tmp_path: Path) -> Path:
     dest.mkdir()
 
     valid = np.full((4, 4), 3, dtype=np.int16)
-    valid[0, :] = VALID_COUNT_FILL  # one row of 4 is fill
-    _write(dest / f"{GRANULE_ID}.ValidCount.tif", valid, VALID_COUNT_FILL)
+    valid[0, :] = VALID_COUNT.nodata  # one row of 4 is fill
+    _write(dest / f"{GRANULE_ID}.ValidCount.tif", valid, VALID_COUNT.nodata)
 
     ndvi = np.full((4, 4), 5000, dtype=np.int16)
     _write(

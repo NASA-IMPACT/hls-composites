@@ -22,9 +22,7 @@ from hls_composites.bands import (
     Band,
 )
 from hls_composites.composite import (
-    DOY_FILL,
     QA_BIT,
-    VALID_COUNT_FILL,
     _composite_block,
     _encode_index,
     _nan_reduce,
@@ -50,6 +48,7 @@ from hls_composites.indices import (
     SELECTION_INDEX,
 )
 from hls_composites.models import Granule
+from hls_composites.outputs import DOY, VALID_COUNT
 
 
 def _granule(satellite: str) -> Granule:
@@ -405,7 +404,7 @@ def test_build_composite_lazy_reader_matches_block_kernel():
 
     # Spot checks matching the kernel test's fixture semantics.
     assert result["NDVI"].values[0, 0] == 6000
-    assert result["ValidCount"].values[1, 0] == VALID_COUNT_FILL
+    assert result["ValidCount"].values[1, 0] == VALID_COUNT.nodata
     assert "NDVI_std" in result.data_vars
     assert "Fmask" in result.data_vars  # the QA layer ships in both output modes
     assert "SAVI" not in result.data_vars  # not in the default index set
@@ -471,8 +470,8 @@ def test_composite_block_ndvi_value_std_and_aux():
     # Pixel (1,0): cloudy at every timestep -> fill everywhere.
     assert out["NDVI"][1, 0] == NDVI.fill_value
     assert out["NDVI_std"][1, 0] == NDVI.fill_value
-    assert out["ValidCount"][1, 0] == VALID_COUNT_FILL
-    assert out["DOY"][1, 0] == DOY_FILL
+    assert out["ValidCount"][1, 0] == VALID_COUNT.nodata
+    assert out["DOY"][1, 0] == DOY.nodata
 
     # NDVI_std at (0,0): std across all 3 timesteps' NDVI.
     ndvi_t = [
@@ -661,12 +660,12 @@ def test_observation_doy_fills_pixels_with_no_valid_observation():
     out = observation_doy(dates, best_idx, all_nan)
 
     assert out[0, 0] == 183
-    assert out[0, 1] == DOY_FILL
+    assert out[0, 1] == DOY.nodata
 
 
 def test_observation_doy_fill_cannot_collide_with_a_real_day():
     # Julian days are 1..366, so a negative fill is unreachable by construction.
-    assert DOY_FILL < 1
+    assert DOY.nodata < 1
 
 
 def test_valid_count_fills_pixels_with_no_valid_observation():
@@ -677,7 +676,7 @@ def test_valid_count_fills_pixels_with_no_valid_observation():
 
     assert out.dtype == np.int16
     assert out[0, 0] == 2
-    assert out[0, 1] == VALID_COUNT_FILL
+    assert out[0, 1] == VALID_COUNT.nodata
 
 
 def _lazy_composite(output: str):
@@ -701,7 +700,7 @@ def _lazy_composite(output: str):
 @pytest.mark.parametrize("output", ["indexes", "bands"])
 @pytest.mark.parametrize(
     ("name", "fill", "dtype"),
-    [("DOY", DOY_FILL, np.int16), ("ValidCount", VALID_COUNT_FILL, np.int16)],
+    [("DOY", DOY.nodata, np.int16), ("ValidCount", VALID_COUNT.nodata, np.int16)],
 )
 def test_build_composite_aux_layers_declare_their_fill_value(output, name, fill, dtype):
     result = _lazy_composite(output)

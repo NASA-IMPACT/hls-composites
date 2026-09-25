@@ -5,14 +5,10 @@ import rasterio
 import xarray as xr
 from rasterio.transform import from_origin
 
-from hls_composites.composite import (
-    DOY_LONG_NAME,
-    VALID_COUNT_FILL,
-    VALID_COUNT_LONG_NAME,
-)
 from hls_composites.indices import NDVI
 from hls_composites.io import BLOCK_SIZE, write_rasters
 from hls_composites.models import DateRange
+from hls_composites.outputs import DOY, VALID_COUNT
 
 CRS = "EPSG:32614"
 TRANSFORM = from_origin(300000, 4500000, 30, 30)
@@ -34,10 +30,10 @@ def _georef_dataset() -> xr.Dataset:
     valid_count = xr.DataArray(
         (values % 4).astype(np.int16), dims=("y", "x"), coords={"y": y, "x": x}
     )
-    valid_count.attrs["nodata"] = VALID_COUNT_FILL
-    valid_count.attrs["long_name"] = VALID_COUNT_LONG_NAME
+    valid_count.attrs["nodata"] = VALID_COUNT.nodata
+    valid_count.attrs["long_name"] = VALID_COUNT.long_name
     doy = valid_count.copy()
-    doy.attrs["long_name"] = DOY_LONG_NAME
+    doy.attrs["long_name"] = DOY.long_name
 
     ds = xr.Dataset(
         {"NDVI": ndvi, "NDVI_std": ndvi_std, "ValidCount": valid_count, "DOY": doy}
@@ -125,7 +121,7 @@ def test_written_geotiff_round_trips_dtype_nodata_crs_and_scale(tmp_path):
     for var in ("ValidCount", "DOY"):
         with rasterio.open(f"{prefix}.{var}.tif") as src:
             assert src.dtypes[0] == "int16"
-            assert src.nodata == VALID_COUNT_FILL
+            assert src.nodata == VALID_COUNT.nodata
             assert src.scales[0] == 1.0
 
 

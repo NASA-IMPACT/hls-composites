@@ -66,8 +66,11 @@ def test_boundary_is_lon_lat_and_encloses_the_grid(meta):
 def test_encoding_constants_match_the_index_definitions(meta):
     assert meta.scale_factor == 1e-4
     assert meta.add_offset == 0.0
-    assert meta.fill_value == -19999
-    assert meta.qa_fill_value == -999
+
+
+def test_each_written_fill_is_declared_under_its_own_attribute(meta):
+    """The fixture writes NDVI and ValidCount, which name different attributes."""
+    assert meta.fill_values == {"FILLVALUE": -19999, "VALIDCOUNT_FILLVALUE": -999}
 
 
 def test_assets_are_the_written_geotiffs_sorted(meta):
