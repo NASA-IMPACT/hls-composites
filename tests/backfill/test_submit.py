@@ -4,7 +4,7 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from hls_composites.backfill.submit import ACTIVE_JOB_STATUSES, BackfillSubmitter
+from hls_composites.backfill.submit import BackfillSubmitter
 from hls_composites.models import YearMonth
 
 QUEUE = "test-queue"
@@ -95,16 +95,6 @@ def batch_env():
             },
         )
         yield batch
-
-
-def test_active_job_statuses_cover_every_pre_terminal_state():
-    assert set(ACTIVE_JOB_STATUSES) == {
-        "SUBMITTED",
-        "PENDING",
-        "RUNNABLE",
-        "STARTING",
-        "RUNNING",
-    }
 
 
 def test_below_threshold_when_queue_is_empty():

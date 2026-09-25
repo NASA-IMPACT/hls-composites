@@ -1,11 +1,11 @@
-"""Reconciling a raster's georeferencing with the hemisphere its tile ID implies."""
+"""Tile ID parsing, and reconciling a raster's georeferencing with its hemisphere."""
 
 import pytest
 from rasterio.crs import CRS
 from rasterio.transform import array_bounds, from_origin
 from rasterio.warp import transform_bounds
 
-from hls_composites.crs import SOUTHERN_FALSE_NORTHING, corrected_grid
+from hls_composites.crs import SOUTHERN_FALSE_NORTHING, corrected_grid, mgrs_fields
 
 SHAPE = (3660, 3660)
 UTM_19N = CRS.from_epsg(32619)
@@ -105,3 +105,17 @@ class TestUnresolvable:
 
         with pytest.raises(ValueError, match="northings"):
             corrected_grid(UTM_19N, impossible, SHAPE, "19LHK")
+
+
+class TestMgrsFields:
+    def test_splits_a_tile_id(self):
+        assert mgrs_fields("14TPN") == (14, "T", "PN")
+
+    def test_single_digit_zone(self):
+        assert mgrs_fields("1CAB") == (1, "C", "AB")
+
+    @pytest.mark.parametrize("tile", ["", "14T", "14TPNX", "TPN", "14IPN"])
+    def test_rejects_malformed_tiles(self, tile):
+        """I and O are not MGRS latitude bands."""
+        with pytest.raises(ValueError, match="tile"):
+            mgrs_fields(tile)

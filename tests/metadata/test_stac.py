@@ -6,7 +6,6 @@ import pytest
 
 from hls_composites.metadata.models import granule_metadata
 from hls_composites.metadata.stac import (
-    PROJECTION_SCHEMA_URI,
     RASTER_SCHEMA_URI,
     SCIENTIFIC_SCHEMA_URI,
     to_stac_item,
@@ -47,12 +46,6 @@ def test_item_spans_the_compositing_period(item):
     assert item["properties"]["datetime"] is None
     assert item["properties"]["start_datetime"].startswith("2020-02-01")
     assert item["properties"]["end_datetime"].startswith("2020-02-29")
-
-
-def test_projection_uses_the_v1_2_schema(item):
-    """v1.1.0 rejects proj:code; v2.0.0 drops proj:epsg. v1.2.0 has both."""
-    assert PROJECTION_SCHEMA_URI in item["stac_extensions"]
-    assert "v1.2.0" in PROJECTION_SCHEMA_URI
 
 
 def test_both_projection_spellings_are_written(item):

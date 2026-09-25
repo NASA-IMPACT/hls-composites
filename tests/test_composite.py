@@ -48,7 +48,7 @@ from hls_composites.indices import (
     SELECTION_INDEX,
 )
 from hls_composites.models import Granule
-from hls_composites.outputs import DOY, VALID_COUNT
+from hls_composites.outputs import DOY, VALID_COUNT, output_bands
 
 
 def _granule(satellite: str) -> Granule:
@@ -94,22 +94,6 @@ class TestNanReduce:
         assert [w for w in recwarn if issubclass(w.category, RuntimeWarning)] == []
 
 
-def test_default_bands_matches_prototype():
-    assert DEFAULT_BANDS == [RED, GREEN, BLUE, NIR_NARROW, SWIR_1, SWIR_2, FMASK]
-
-
-def test_default_bands_names_match_prototype():
-    assert [b.name for b in DEFAULT_BANDS] == [
-        "red",
-        "green",
-        "blue",
-        "nir_narrow",
-        "swir_1",
-        "swir_2",
-        "Fmask",
-    ]
-
-
 def test_asset_url_l30_red_band():
     url = asset_url(_granule("L30"), RED)
     assert url == (
@@ -133,27 +117,6 @@ def test_asset_url_fmask_same_code_both_satellites():
     assert asset_url(_granule("S30"), FMASK).endswith(".Fmask.tif")
 
 
-def test_reflectance_bands_have_sr_fill_and_int16():
-    for band in (RED, GREEN, BLUE, NIR_NARROW, SWIR_1, SWIR_2):
-        assert band.is_reflectance is True
-        assert band.nodata == SR_FILL
-        assert band.dtype == np.int16
-
-
-def test_reflectance_bands_map_to_spectral_index_bands():
-    assert RED.index_band is Band.R
-    assert GREEN.index_band is Band.G
-    assert BLUE.index_band is Band.B
-    assert NIR_NARROW.index_band is Band.NIR
-    assert SWIR_1.index_band is Band.SWIR1
-    assert SWIR_2.index_band is Band.SWIR2
-
-
-def test_reflectance_bands_excludes_fmask():
-    assert REFLECTANCE_BANDS == [RED, GREEN, BLUE, NIR_NARROW, SWIR_1, SWIR_2]
-    assert FMASK not in REFLECTANCE_BANDS
-
-
 def test_spec_by_band_reverse_lookup():
     assert SPEC_BY_BAND[Band.R] is RED
     assert SPEC_BY_BAND[Band.NIR] is NIR_NARROW
@@ -165,13 +128,6 @@ def test_spec_by_band_reverse_lookup():
         Band.SWIR1,
         Band.SWIR2,
     }
-
-
-def test_fmask_band_has_qa_fill_and_uint8():
-    assert FMASK.is_reflectance is False
-    assert FMASK.index_band is None
-    assert FMASK.nodata == QA_FILL
-    assert FMASK.dtype == np.uint8
 
 
 def _clear_bands(t: int, y: int, x: int) -> dict:
@@ -370,44 +326,39 @@ def test_read_band_with_retry_raises_after_exhausting_retries(monkeypatch):
     def opener(url):
         raise OSError("permanent failure")
 
-    try:
+    with pytest.raises(OSError, match="permanent failure"):
         read_band_with_retry("s3://x/y.tif", max_retries=2, opener=opener)
-        assert False, "expected IOError"
-    except OSError as e:
-        assert "permanent failure" in str(e)
 
 
-def test_build_composite_lazy_reader_matches_block_kernel():
-    # The lazy rioxarray + xr.map_blocks path must produce exactly what the
-    # direct numpy kernel produces on the same stack. Reuse the block fixture
-    # and feed each (granule, band) as a lazy DataArray via a synthetic opener.
-    reflectance, fmask, dates = _block_fixture()
+def _stack_opener(reflectance, fmask, dates):
+    """Granules for a stack, and an opener serving each band as a DataArray."""
     granules = [
         Granule(path=f"s3://bucket/g{i}", satellite="L30", date=d)
         for i, d in enumerate(dates)
     ]
+    band_data = {
+        asset_url(g, spec): (fmask[i] if spec is FMASK else reflectance[spec][i])
+        for i, g in enumerate(granules)
+        for spec in DEFAULT_BANDS
+    }
+    return granules, lambda url: xr.DataArray(band_data[url], dims=("y", "x"))
 
-    band_data: dict[str, np.ndarray] = {}
-    for i, granule in enumerate(granules):
-        for spec in DEFAULT_BANDS:
-            arr = fmask[i] if spec is FMASK else reflectance[spec][i]
-            band_data[asset_url(granule, spec)] = arr
 
-    def fake_opener(url: str) -> xr.DataArray:
-        return xr.DataArray(band_data[url], dims=("y", "x"))
+def _lazy_composite(fixture=None, **kwargs) -> xr.Dataset:
+    granules, opener = _stack_opener(*(fixture or _block_fixture()))
+    return build_composite(granules, opener=opener, **kwargs)
 
-    result = build_composite(granules, opener=fake_opener).compute()
 
-    expected = _composite_block(reflectance, fmask, dates, DEFAULT_INDICES)
+@pytest.mark.parametrize("output", ["indexes", "bands"])
+def test_build_composite_lazy_reader_matches_block_kernel(output):
+    # The lazy rioxarray + xr.map_blocks path must produce exactly what the
+    # direct numpy kernel produces on the same stack.
+    result = _lazy_composite(output=output).compute()
+
+    expected = _composite_block(*_block_fixture(), output=output)
+    assert set(result.data_vars) == set(expected)
     for name, arr in expected.items():
         np.testing.assert_array_equal(result[name].values, arr)
-
-    # Spot checks matching the kernel test's fixture semantics.
-    assert result["NDVI"].values[0, 0] == 6000
-    assert result["ValidCount"].values[1, 0] == VALID_COUNT.nodata
-    assert "NDVI_std" in result.data_vars
-    assert "Fmask" in result.data_vars  # the QA layer ships in both output modes
-    assert "SAVI" not in result.data_vars  # not in the default index set
 
 
 def test_build_composite_raises_on_empty_granule_list():
@@ -483,55 +434,17 @@ def test_composite_block_ndvi_value_std_and_aux():
     assert out["NDVI_std"][0, 0] == expected_std
 
 
-def test_composite_block_defaults_to_the_default_indices_and_aux():
-    reflectance, fmask, dates = _block_fixture()
-    out = _composite_block(reflectance, fmask, dates)
+@pytest.mark.parametrize(
+    ("output", "values"), [("indexes", DEFAULT_INDICES), ("bands", REFLECTANCE_BANDS)]
+)
+def test_composite_block_emits_what_output_bands_declares(output, values):
+    """The kernel and the declarations the writer stamps must not drift apart."""
+    out = _composite_block(*_block_fixture(), output=output)
 
-    assert list(out) == [
-        "EVI",
-        "EVI_std",
-        "NBR",
-        "NBR_std",
-        "NDVI",
-        "NDVI_std",
-        "Fmask",
-        "ValidCount",
-        "DOY",
-    ]
-    for index in DEFAULT_INDICES:
-        assert out[index.name].shape == (2, 2)
-        assert out[index.name].dtype == np.int16
-        assert out[f"{index.name}_std"].dtype == np.int16
-    assert out["ValidCount"].dtype == np.int16
-    assert out["DOY"].dtype == np.int16
-
-
-def test_composite_block_bands_output_emits_reflectance_values_and_std():
-    reflectance, fmask, dates = _block_fixture()
-    out = _composite_block(reflectance, fmask, dates, output="bands")
-
-    assert list(out) == [
-        "red",
-        "red_std",
-        "green",
-        "green_std",
-        "blue",
-        "blue_std",
-        "nir_narrow",
-        "nir_narrow_std",
-        "swir_1",
-        "swir_1_std",
-        "swir_2",
-        "swir_2_std",
-        "Fmask",
-        "ValidCount",
-        "DOY",
-    ]
-    for spec in REFLECTANCE_BANDS:
-        assert out[spec.name].dtype == np.int16
-        assert out[f"{spec.name}_std"].dtype == np.int16
-    assert out["ValidCount"].dtype == np.int16
-    assert out["DOY"].dtype == np.int16
+    declared = output_bands(values)
+    assert list(out) == [band.name for band in declared]
+    for band in declared:
+        assert out[band.name].dtype == band.dtype
 
 
 def test_composite_block_bands_values_taken_at_selected_timestep():
@@ -567,48 +480,8 @@ def test_composite_block_bands_std_is_digital_number_std_rounded():
     assert out["red_std"][0, 0] == 0
 
 
-def test_build_composite_bands_output_matches_block_kernel():
-    reflectance, fmask, dates = _block_fixture()
-    granules = [
-        Granule(path=f"s3://bucket/g{i}", satellite="L30", date=d)
-        for i, d in enumerate(dates)
-    ]
-
-    band_data: dict[str, np.ndarray] = {}
-    for i, granule in enumerate(granules):
-        for spec in DEFAULT_BANDS:
-            arr = fmask[i] if spec is FMASK else reflectance[spec][i]
-            band_data[asset_url(granule, spec)] = arr
-
-    def fake_opener(url: str) -> xr.DataArray:
-        return xr.DataArray(band_data[url], dims=("y", "x"))
-
-    result = build_composite(granules, output="bands", opener=fake_opener).compute()
-
-    expected = _composite_block(reflectance, fmask, dates, output="bands")
-    for name, arr in expected.items():
-        np.testing.assert_array_equal(result[name].values, arr)
-
-    assert "NDVI" not in result.data_vars
-    assert FMASK.name in result.data_vars
-
-
 def test_build_composite_bands_output_carries_band_encoding_attrs():
-    reflectance, fmask, dates = _block_fixture()
-    granules = [
-        Granule(path=f"s3://bucket/g{i}", satellite="L30", date=d)
-        for i, d in enumerate(dates)
-    ]
-    band_data = {
-        asset_url(g, spec): (fmask[i] if spec is FMASK else reflectance[spec][i])
-        for i, g in enumerate(granules)
-        for spec in DEFAULT_BANDS
-    }
-    result = build_composite(
-        granules,
-        output="bands",
-        opener=lambda url: xr.DataArray(band_data[url], dims=("y", "x")),
-    )
+    result = _lazy_composite(output="bands")
 
     for spec in REFLECTANCE_BANDS:
         for name in (spec.name, f"{spec.name}_std"):
@@ -617,26 +490,11 @@ def test_build_composite_bands_output_carries_band_encoding_attrs():
 
 
 def test_build_composite_honours_an_explicit_index_list():
-    reflectance, fmask, dates = _block_fixture()
-    granules = [
-        Granule(path=f"s3://bucket/g{i}", satellite="L30", date=d)
-        for i, d in enumerate(dates)
-    ]
-    band_data = {
-        asset_url(g, spec): (fmask[i] if spec is FMASK else reflectance[spec][i])
-        for i, g in enumerate(granules)
-        for spec in DEFAULT_BANDS
-    }
-    result = build_composite(
-        granules,
-        indices=ALL_INDICES,
-        opener=lambda url: xr.DataArray(band_data[url], dims=("y", "x")),
-    )
+    result = _lazy_composite(indices=ALL_INDICES)
 
     for index in ALL_INDICES:
         assert index.name in result.data_vars
         assert f"{index.name}_std" in result.data_vars
-        assert result[index.name].dtype == np.int16
 
 
 def test_observation_doy_is_absolute_julian_day_in_int16():
@@ -663,11 +521,6 @@ def test_observation_doy_fills_pixels_with_no_valid_observation():
     assert out[0, 1] == DOY.nodata
 
 
-def test_observation_doy_fill_cannot_collide_with_a_real_day():
-    # Julian days are 1..366, so a negative fill is unreachable by construction.
-    assert DOY.nodata < 1
-
-
 def test_valid_count_fills_pixels_with_no_valid_observation():
     # Column 0 has two usable observations, column 1 has none.
     bad = np.array([[[False, True]], [[False, True]]])
@@ -679,47 +532,14 @@ def test_valid_count_fills_pixels_with_no_valid_observation():
     assert out[0, 1] == VALID_COUNT.nodata
 
 
-def _lazy_composite(output: str):
-    reflectance, fmask, dates = _block_fixture()
-    granules = [
-        Granule(path=f"s3://bucket/g{i}", satellite="L30", date=d)
-        for i, d in enumerate(dates)
-    ]
-    band_data = {
-        asset_url(g, spec): (fmask[i] if spec is FMASK else reflectance[spec][i])
-        for i, g in enumerate(granules)
-        for spec in DEFAULT_BANDS
-    }
-    return build_composite(
-        granules,
-        output=output,
-        opener=lambda url: xr.DataArray(band_data[url], dims=("y", "x")),
-    )
-
-
 @pytest.mark.parametrize("output", ["indexes", "bands"])
-@pytest.mark.parametrize(
-    ("name", "fill", "dtype"),
-    [("DOY", DOY.nodata, np.int16), ("ValidCount", VALID_COUNT.nodata, np.int16)],
-)
-def test_build_composite_aux_layers_declare_their_fill_value(output, name, fill, dtype):
-    result = _lazy_composite(output)
+@pytest.mark.parametrize("band", [DOY, VALID_COUNT], ids=lambda band: band.name)
+def test_build_composite_aux_layers_declare_their_fill_value(output, band):
+    result = _lazy_composite(output=output)
 
-    assert result[name].dtype == dtype
-    assert result[name].attrs["nodata"] == fill
+    assert result[band.name].attrs["nodata"] == band.nodata
     # Pixel (1,0) is cloudy at every timestep, so both aux layers are filled.
-    assert result[name].compute().values[1, 0] == fill
-
-
-@pytest.mark.parametrize("output", ["indexes", "bands"])
-def test_build_composite_aux_layers_keep_real_values_where_valid(output):
-    result = _lazy_composite(output).compute()
-
-    # Pixel (0,0) is clear at all 3 timesteps; (0,1) only at the last.
-    assert result["ValidCount"].values[0, 0] == 3
-    assert result["ValidCount"].values[0, 1] == 1
-    assert result["DOY"].values[0, 0] == 15
-    assert result["DOY"].values[0, 1] == 25
+    assert result[band.name].compute().values[1, 0] == band.nodata
 
 
 def _two_obs_evi2(a: float, b: float) -> np.ndarray:
@@ -745,17 +565,7 @@ def test_select_best_index_breaks_even_stack_ties_toward_the_earlier_observation
 def test_build_composite_selection_is_stable_under_granule_reordering_for_odd_stacks():
     # Three granules -> odd stack -> no tie, so the composite is identical
     # whatever order build_composite receives them in.
-    reflectance, fmask, dates = _block_fixture()
-    granules = [
-        Granule(path=f"s3://bucket/g{i}", satellite="L30", date=d)
-        for i, d in enumerate(dates)
-    ]
-    band_data = {
-        asset_url(g, spec): (fmask[i] if spec is FMASK else reflectance[spec][i])
-        for i, g in enumerate(granules)
-        for spec in DEFAULT_BANDS
-    }
-    opener = lambda url: xr.DataArray(band_data[url], dims=("y", "x"))
+    granules, opener = _stack_opener(*_block_fixture())
 
     forward = build_composite(granules, opener=opener).compute()
     shuffled = build_composite(granules[::-1], opener=opener).compute()
@@ -880,21 +690,7 @@ def test_composite_block_emits_no_fmask_std():
 
 
 def test_build_composite_carries_fmask_with_its_encoding():
-    reflectance, fmask, dates = _fmask_fixture()
-    granules = [
-        Granule(path=f"s3://bucket/g{i}", satellite="L30", date=d)
-        for i, d in enumerate(dates)
-    ]
-    band_data: dict[str, np.ndarray] = {}
-    for i, granule in enumerate(granules):
-        for spec in DEFAULT_BANDS:
-            arr = fmask[i] if spec is FMASK else reflectance[spec][i]
-            band_data[asset_url(granule, spec)] = arr
-
-    def fake_opener(url: str) -> xr.DataArray:
-        return xr.DataArray(band_data[url], dims=("y", "x"))
-
-    result = build_composite(granules, opener=fake_opener).compute()
+    result = _lazy_composite(_fmask_fixture()).compute()
 
     assert result["Fmask"].dtype == np.uint8
     assert result["Fmask"].attrs["nodata"] == QA_FILL

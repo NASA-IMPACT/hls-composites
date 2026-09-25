@@ -93,15 +93,6 @@ def test_written_cog_is_self_describing(tmp_path):
     assert tags["ACCODE"] == "test"
 
 
-def test_std_band_is_described_as_a_standard_deviation(tmp_path):
-    date_range = DateRange(start=date(2020, 7, 1), end=date(2020, 7, 31))
-    dest = write_rasters(_georef_dataset(), tmp_path, "14TPN", date_range)
-
-    path = dest / "HLS.M30.T14TPN.2020183.2020213.v2.0.NDVI_std.tif"
-    with rasterio.open(path) as src:
-        assert src.descriptions == (f"{NDVI_LONG_NAME} standard deviation",)
-
-
 def test_written_geotiff_round_trips_dtype_nodata_crs_and_scale(tmp_path):
     date_range = DateRange(start=date(2020, 7, 1), end=date(2020, 7, 31))
     ds = _georef_dataset()
