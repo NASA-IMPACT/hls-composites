@@ -17,7 +17,7 @@ from typing import ClassVar
 
 import numpy as np
 
-from hls_composites.bands import Band
+from hls_composites.bands import WIDE_RANGE_PREDICTOR, Band
 
 BandData = Mapping[Band, np.ndarray]
 
@@ -45,6 +45,7 @@ class Index:
     bands: ClassVar[tuple[Band, ...]]
     long_name: ClassVar[str]
     scale_factor: ClassVar[float] = 1e-4
+    predictor: ClassVar[int] = WIDE_RANGE_PREDICTOR
     fill_value: ClassVar[int] = -19999
     valid_min: ClassVar[float]
     valid_max: ClassVar[float]

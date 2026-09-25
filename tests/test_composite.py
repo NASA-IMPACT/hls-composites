@@ -12,6 +12,7 @@ from hls_composites.bands import (
     FMASK,
     GREEN,
     NIR_NARROW,
+    NO_PREDICTOR,
     QA_FILL,
     RED,
     REFLECTANCE_BANDS,
@@ -19,6 +20,7 @@ from hls_composites.bands import (
     SR_FILL,
     SWIR_1,
     SWIR_2,
+    WIDE_RANGE_PREDICTOR,
     Band,
 )
 from hls_composites.composite import (
@@ -687,6 +689,40 @@ def test_composite_block_emits_no_fmask_std():
     assert "Fmask_std" not in _composite_block(
         reflectance, fmask, dates, output="bands"
     )
+
+
+def test_build_composite_declares_a_predictor_per_variable():
+    """Only the wide-ranging value bands are worth differencing."""
+    reflectance, fmask, dates = _fmask_fixture()
+    granules = [
+        Granule(path=f"s3://bucket/g{i}", satellite="L30", date=d)
+        for i, d in enumerate(dates)
+    ]
+    band_data: dict[str, np.ndarray] = {}
+    for i, granule in enumerate(granules):
+        for spec in DEFAULT_BANDS:
+            arr = fmask[i] if spec is FMASK else reflectance[spec][i]
+            band_data[asset_url(granule, spec)] = arr
+
+    def fake_opener(url: str) -> xr.DataArray:
+        return xr.DataArray(band_data[url], dims=("y", "x"))
+
+    result = build_composite(granules, opener=fake_opener).compute()
+
+    predictors = {
+        name: array.attrs["predictor"] for name, array in result.data_vars.items()
+    }
+    assert predictors == {
+        "EVI": WIDE_RANGE_PREDICTOR,
+        "NBR": WIDE_RANGE_PREDICTOR,
+        "NDVI": WIDE_RANGE_PREDICTOR,
+        "EVI_std": NO_PREDICTOR,
+        "NBR_std": NO_PREDICTOR,
+        "NDVI_std": NO_PREDICTOR,
+        "Fmask": NO_PREDICTOR,
+        "ValidCount": NO_PREDICTOR,
+        "DOY": NO_PREDICTOR,
+    }
 
 
 def test_build_composite_carries_fmask_with_its_encoding():

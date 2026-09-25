@@ -713,6 +713,7 @@ def build_composite(
     for layer in written:
         composite[layer.name].attrs["nodata"] = layer.nodata
         composite[layer.name].attrs["long_name"] = layer.long_name
+        composite[layer.name].attrs["predictor"] = layer.predictor
         if layer.scale != 1.0:
             composite[layer.name].attrs["scale_factor"] = layer.scale
     return composite
