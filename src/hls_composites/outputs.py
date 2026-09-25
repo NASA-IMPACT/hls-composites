@@ -227,7 +227,7 @@ DOY = DerivedBand(
     name="DOY",
     long_name="Day of year of the selected observation",
     dtype=np.int16,
-    nodata=-1,
+    nodata=-999,
     fill_attribute="DOY_FILLVALUE",
 )
 """Which observation each pixel was taken from. Julian days are 1..366."""
