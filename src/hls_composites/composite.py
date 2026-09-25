@@ -20,24 +20,10 @@ from hls_composites.bands import (
 )
 from hls_composites.indices import DEFAULT_INDICES, SELECTION_INDEX, Index
 from hls_composites.models import Granule
+from hls_composites.outputs import DOY, VALID_COUNT, output_bands
 
 CompositeOutput = Literal["indexes", "bands"]
 """Which quantity a composite is built over: spectral indices or raw bands."""
-
-DOY_FILL = -1
-"""Fill value for `DOY`. Julian days are 1..366, so a negative is unreachable."""
-
-DOY_LONG_NAME = "Day of year of the selected observation"
-"""`DOY`'s band description."""
-
-VALID_COUNT_FILL = 255
-"""Fill value for `ValidCount`: the uint8 maximum.
-
-A tile-month holds nowhere near 255 granules, so no real count can reach it.
-"""
-
-VALID_COUNT_LONG_NAME = "Count of valid observations"
-"""`ValidCount`'s band description."""
 
 QA_BIT = {
     "cirrus": 0,
@@ -207,13 +193,8 @@ def spatial_coverage(valid_count: np.ndarray) -> float:
     Every product layer shares one mask, so this is the granule's coverage
     whichever layer it is measured from.
     """
-    covered = int(np.count_nonzero(valid_count != VALID_COUNT_FILL))
+    covered = int(np.count_nonzero(valid_count != VALID_COUNT.nodata))
     return 100 * covered / valid_count.size
-
-
-def _long_names(name: str, long_name: str) -> list[tuple[str, str]]:
-    """Pair a variable and its temporal standard deviation with their names."""
-    return [(name, long_name), (f"{name}_std", f"{long_name} standard deviation")]
 
 
 def _nan_reduce(reduction: Callable[..., np.ndarray], stack: np.ndarray) -> np.ndarray:
@@ -339,12 +320,12 @@ def valid_count(bad_pixel_mask: np.ndarray) -> np.ndarray:
     Returns
     -------
     numpy.ndarray
-        `uint8` count of unmasked observations per pixel, shaped `(Y, X)`.
-        Pixels with no valid observation get `VALID_COUNT_FILL` rather than 0, so
-        they read as absent data rather than as a measured zero.
+        Count of unmasked observations per pixel, shaped `(Y, X)`, stored as
+        `VALID_COUNT` declares. Pixels with no valid observation get its fill
+        rather than 0, so they read as absent data rather than a measured zero.
     """
     counts = np.sum(~bad_pixel_mask, axis=0)
-    return np.where(counts == 0, VALID_COUNT_FILL, counts).astype(np.uint8)
+    return np.where(counts == 0, VALID_COUNT.nodata, counts).astype(VALID_COUNT.dtype)
 
 
 def observation_doy(
@@ -367,10 +348,10 @@ def observation_doy(
     -------
     numpy.ndarray
         `int16` Julian day-of-year (1..366) per pixel, shaped `(Y, X)`.
-        Pixels in `all_nan_mask` get `DOY_FILL`.
+        Pixels in `all_nan_mask` get `DOY`'s fill.
     """
     doy_vals = np.array([d.timetuple().tm_yday for d in dates], dtype=np.int16)
-    return np.where(all_nan_mask, DOY_FILL, doy_vals[best_idx]).astype(np.int16)
+    return np.where(all_nan_mask, DOY.nodata, doy_vals[best_idx]).astype(DOY.dtype)
 
 
 def _encode_index(
@@ -493,9 +474,9 @@ def _composite_block(
     -------
     dict of str to numpy.ndarray
         One `(Y, X)` array per output variable, plus `Fmask` (uint8, the
-        selected observation's QA, filled with `QA_FILL`), `ValidCount`
-        (uint8, filled with `VALID_COUNT_FILL`) and `DOY` (int16, filled with
-        `DOY_FILL`). For `"indexes"`, `{index.name}` and `{index.name}_std`
+        selected observation's QA, filled with `QA_FILL`), `ValidCount` and
+        `DOY`, each stored and filled as `outputs.SELECTION_BANDS` declares.
+        For `"indexes"`, `{index.name}` and `{index.name}_std`
         (int16) per index; for `"bands"`, `{band.name}` and `{band.name}_std`
         (int16) per reflectance band, in `reflectance` order.
     """
@@ -528,8 +509,8 @@ def _composite_block(
     out[FMASK.name] = composite_band(fmask, best_idx, all_nan, FMASK.nodata).astype(
         FMASK.dtype
     )
-    out["ValidCount"] = valid_count(bad)
-    out["DOY"] = observation_doy(dates, best_idx, all_nan)
+    out[VALID_COUNT.name] = valid_count(bad)
+    out[DOY.name] = observation_doy(dates, best_idx, all_nan)
     return out
 
 
@@ -680,7 +661,7 @@ def build_composite(
     -------
     xarray.Dataset
         Lazy Dataset carrying the granules' CRS/transform, with `Fmask`
-        (uint8), `ValidCount` (uint8) and `DOY` (int16) plus, per `output`, either `{index.name}`
+        (uint8), `ValidCount` (int16) and `DOY` (int16) plus, per `output`, either `{index.name}`
         and `{index.name}_std` per index or `{band.name}` and
         `{band.name}_std` per reflectance band (int16 either way).
 
@@ -707,25 +688,14 @@ def build_composite(
     )
 
     template2d = stacked[FMASK.name].isel(time=0, drop=True)
-    template_vars: dict[str, xr.DataArray] = {}
-    if output == "bands":
-        for band in bands:
-            if not band.is_reflectance:
-                continue
-            template_vars[band.name] = xr.zeros_like(template2d, dtype=band.dtype)
-            template_vars[f"{band.name}_std"] = xr.zeros_like(
-                template2d, dtype=np.int16
-            )
-    else:
-        for index in indices:
-            template_vars[index.name] = xr.zeros_like(template2d, dtype=np.int16)
-            template_vars[f"{index.name}_std"] = xr.zeros_like(
-                template2d, dtype=np.int16
-            )
-    template_vars[FMASK.name] = xr.zeros_like(template2d, dtype=FMASK.dtype)
-    template_vars["ValidCount"] = xr.zeros_like(template2d, dtype=np.uint8)
-    template_vars["DOY"] = xr.zeros_like(template2d, dtype=np.int16)
-    template = xr.Dataset(template_vars)
+    written = output_bands(
+        [band for band in bands if band.is_reflectance]
+        if output == "bands"
+        else indices
+    )
+    template = xr.Dataset(
+        {layer.name: xr.zeros_like(template2d, dtype=layer.dtype) for layer in written}
+    )
 
     dates = [g.date for g in granules]
     composite = xr.map_blocks(
@@ -740,26 +710,9 @@ def build_composite(
         template=template,
     )
 
-    # Self-describe each var's nodata/scale/name so the writer stays generic.
-    # The aux layers share one fill and need no scale.
-    if output == "bands":
-        for band in bands:
-            if not band.is_reflectance:
-                continue
-            for name, long_name in _long_names(band.name, band.long_name):
-                composite[name].attrs["nodata"] = band.nodata
-                composite[name].attrs["scale_factor"] = band.scale
-                composite[name].attrs["long_name"] = long_name
-    else:
-        for index in indices:
-            for name, long_name in _long_names(index.name, index.long_name):
-                composite[name].attrs["nodata"] = index.fill_value
-                composite[name].attrs["scale_factor"] = index.scale_factor
-                composite[name].attrs["long_name"] = long_name
-    composite[FMASK.name].attrs["nodata"] = FMASK.nodata
-    composite[FMASK.name].attrs["long_name"] = FMASK.long_name
-    composite["ValidCount"].attrs["nodata"] = VALID_COUNT_FILL
-    composite["ValidCount"].attrs["long_name"] = VALID_COUNT_LONG_NAME
-    composite["DOY"].attrs["nodata"] = DOY_FILL
-    composite["DOY"].attrs["long_name"] = DOY_LONG_NAME
+    for layer in written:
+        composite[layer.name].attrs["nodata"] = layer.nodata
+        composite[layer.name].attrs["long_name"] = layer.long_name
+        if layer.scale != 1.0:
+            composite[layer.name].attrs["scale_factor"] = layer.scale
     return composite

@@ -57,8 +57,8 @@ def _additional_attributes(meta: GranuleMetadata) -> list[tuple[str, list[str]]]
         ("ULY", str(meta.uly)),
         ("REF_SCALE_FACTOR", str(meta.scale_factor)),
         ("ADD_OFFSET", str(meta.add_offset)),
-        ("FILLVALUE", str(meta.fill_value)),
-        ("QA_FILL_VALUE", str(meta.qa_fill_value)),
+        # One attribute per distinct fill, each named by the band declaring it.
+        *((name, str(value)) for name, value in meta.fill_values.items()),
         ("NCOLS", str(meta.ncols)),
         ("NROWS", str(meta.nrows)),
         ("COMPOSITING_ALGORITHM", COMPOSITING_ALGORITHM),

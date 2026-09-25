@@ -98,7 +98,7 @@ def test_required_additional_attributes_are_present(root):
         "REF_SCALE_FACTOR",
         "ADD_OFFSET",
         "FILLVALUE",
-        "QA_FILL_VALUE",
+        "VALIDCOUNT_FILLVALUE",
         "NCOLS",
         "NROWS",
         "PRODUCT_URI",
