@@ -70,7 +70,7 @@ def test_encoding_constants_match_the_index_definitions(meta):
 
 def test_each_written_fill_is_declared_under_its_own_attribute(meta):
     """The fixture writes NDVI and ValidCount, which name different attributes."""
-    assert meta.fill_values == {"FILLVALUE": -19999, "VALIDCOUNT_FILLVALUE": -999}
+    assert meta.fill_values == {"FILLVALUE": -19999, "VALIDCOUNT_FILLVALUE": -1}
 
 
 def test_assets_are_the_written_geotiffs_sorted(meta):

@@ -214,7 +214,7 @@ VALID_COUNT = DerivedBand(
     name="ValidCount",
     long_name="Count of valid observations",
     dtype=np.int16,
-    nodata=-999,
+    nodata=-1,
     fill_attribute="VALIDCOUNT_FILLVALUE",
 )
 """How many observations a pixel was composited from.
@@ -227,7 +227,7 @@ DOY = DerivedBand(
     name="DOY",
     long_name="Day of year of the selected observation",
     dtype=np.int16,
-    nodata=-999,
+    nodata=-1,
     fill_attribute="DOY_FILLVALUE",
 )
 """Which observation each pixel was taken from. Julian days are 1..366."""

@@ -710,9 +710,6 @@ def build_composite(
         template=template,
     )
 
-    # Self-describe each var's nodata/scale/name so the writer stays generic.
-    # A layer already in its own units declares no scale, as Fmask and the
-    # selection layers do.
     for layer in written:
         composite[layer.name].attrs["nodata"] = layer.nodata
         composite[layer.name].attrs["long_name"] = layer.long_name
