@@ -17,24 +17,6 @@ def test_writes_both_documents_into_the_granule_directory(granule_dir, browse_im
     assert all(path.parent == granule_dir for path in written)
 
 
-def test_the_xml_parses_and_names_the_granule(granule_dir, browse_images):
-    xml_path, _ = write_metadata(
-        "14TPN", FEBRUARY, granule_dir, browse_images, platforms=PLATFORMS
-    )
-
-    root = ElementTree.fromstring(xml_path.read_text())
-
-    assert root.findtext("GranuleUR") == GRANULE_ID
-
-
-def test_the_json_parses_and_names_the_granule(granule_dir, browse_images):
-    _, json_path = write_metadata(
-        "14TPN", FEBRUARY, granule_dir, browse_images, platforms=PLATFORMS
-    )
-
-    assert json.loads(json_path.read_text())["id"] == GRANULE_ID
-
-
 def test_both_documents_agree_on_the_granule(granule_dir, browse_images):
     """The property the shared model buys: the two cannot drift apart."""
     xml_path, json_path = write_metadata(
@@ -44,7 +26,7 @@ def test_both_documents_agree_on_the_granule(granule_dir, browse_images):
     root = ElementTree.fromstring(xml_path.read_text())
     item = json.loads(json_path.read_text())
 
-    assert root.findtext("GranuleUR") == item["id"]
+    assert root.findtext("GranuleUR") == item["id"] == GRANULE_ID
     epsg = next(
         element.findtext("Values/Value")
         for element in root.iter("AdditionalAttribute")

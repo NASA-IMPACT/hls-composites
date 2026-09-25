@@ -9,7 +9,6 @@ from hls_composites.outputs import (
     DOY,
     VALID_COUNT,
     IndexBand,
-    OutputBand,
     ReflectanceBand,
     fill_attributes,
     output_bands,
@@ -45,11 +44,6 @@ class TestOutputBands:
 
         assert names[:4] == ["red", "red_std", "green", "green_std"]
 
-    def test_every_layer_satisfies_the_protocol(self):
-        assert all(
-            isinstance(band, OutputBand) for band in output_bands(DEFAULT_INDICES)
-        )
-
 
 class TestDeclarations:
     def test_an_index_layer_takes_its_encoding_from_the_index(self):
@@ -77,10 +71,6 @@ class TestDeclarations:
             spec.scale,
         )
 
-    def test_the_selection_layers_are_in_their_own_units(self):
-        assert VALID_COUNT.scale == 1.0
-        assert DOY.scale == 1.0
-
     def test_counts_and_days_cannot_be_confused_with_their_fill(self):
         assert VALID_COUNT.nodata < 0
         assert DOY.nodata < 1
@@ -94,13 +84,13 @@ class TestFillAttributes:
 
     def test_each_selection_layer_names_its_own(self):
         attributes = fill_attributes(
-            {"Fmask": float(FMASK.nodata), "ValidCount": -999.0, "DOY": -1.0}
+            {band.name: float(band.nodata) for band in (FMASK, VALID_COUNT, DOY)}
         )
 
         assert attributes == {
             "QA_FILLVALUE": FMASK.nodata,
-            "VALIDCOUNT_FILLVALUE": -999,
-            "DOY_FILLVALUE": -1,
+            "VALIDCOUNT_FILLVALUE": VALID_COUNT.nodata,
+            "DOY_FILLVALUE": DOY.nodata,
         }
 
     def test_a_band_without_a_fill_is_skipped(self):

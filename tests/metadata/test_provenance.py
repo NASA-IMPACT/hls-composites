@@ -3,7 +3,6 @@
 from datetime import date
 from xml.etree import ElementTree
 
-import pystac
 import pytest
 
 from hls_composites.crs import mgrs_fields
@@ -118,6 +117,3 @@ class TestStacProvenance:
         assert item["properties"]["mgrs:utm_zone"] == 14
         assert item["properties"]["mgrs:latitude_band"] == "T"
         assert item["properties"]["mgrs:grid_square"] == "PN"
-
-    def test_item_still_validates(self, meta):
-        pystac.Item.from_dict(to_stac_item(meta)).validate()

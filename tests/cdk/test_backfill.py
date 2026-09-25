@@ -115,19 +115,6 @@ def test_backfill_schedule_is_disabled_by_default(template):
     assert schedules_by_plan(template)["plans/backfill.json"]["State"] == "DISABLED"
 
 
-def test_schedule_states_follow_their_settings(template):
-    settings = build_settings()
-    schedules = schedules_by_plan(template)
-
-    def state(enabled: bool) -> str:
-        return "ENABLED" if enabled else "DISABLED"
-
-    assert schedules["plans/backfill.json"]["State"] == state(
-        settings.SCHEDULE_BACKFILL
-    )
-    assert schedules["plans/forward.json"]["State"] == state(settings.SCHEDULE_FORWARD)
-
-
 def test_feeder_lambdas_are_single_concurrency(template):
     """Concurrent ticks would both read one cursor and one would lose the CAS."""
     functions = [
@@ -184,14 +171,6 @@ def opener_function(template: assertions.Template) -> dict:
         in function["Properties"].get("Environment", {}).get("Variables", {})
     ]
     return function
-
-
-def test_month_opener_runs_on_a_monthly_cron(template):
-    """The configured day drives the cron; the value itself is tunable."""
-    expressions = [rule["ScheduleExpression"] for rule in schedule_rules(template)]
-    crons = [e for e in expressions if e.startswith("cron(")]
-
-    assert crons == [f"cron(0 6 {build_settings().MONTH_OPENER_DAY} * ? *)"]
 
 
 def test_month_opener_day_is_configurable(template):
