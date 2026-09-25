@@ -35,7 +35,7 @@ def _index_dataset(size: int, value: int = 5000) -> xr.Dataset:
             "EVI_std": (dims, data),
             "NBR": (dims, data),
             "NDVI": (dims, data),
-            "ValidCount": (dims, np.full((size, size), 3, np.uint8)),
+            "ValidCount": (dims, np.full((size, size), 3, np.int16)),
         }
     )
 

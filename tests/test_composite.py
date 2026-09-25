@@ -503,7 +503,7 @@ def test_composite_block_defaults_to_the_default_indices_and_aux():
         assert out[index.name].shape == (2, 2)
         assert out[index.name].dtype == np.int16
         assert out[f"{index.name}_std"].dtype == np.int16
-    assert out["ValidCount"].dtype == np.uint8
+    assert out["ValidCount"].dtype == np.int16
     assert out["DOY"].dtype == np.int16
 
 
@@ -531,7 +531,7 @@ def test_composite_block_bands_output_emits_reflectance_values_and_std():
     for spec in REFLECTANCE_BANDS:
         assert out[spec.name].dtype == np.int16
         assert out[f"{spec.name}_std"].dtype == np.int16
-    assert out["ValidCount"].dtype == np.uint8
+    assert out["ValidCount"].dtype == np.int16
     assert out["DOY"].dtype == np.int16
 
 
@@ -675,7 +675,7 @@ def test_valid_count_fills_pixels_with_no_valid_observation():
 
     out = valid_count(bad)
 
-    assert out.dtype == np.uint8
+    assert out.dtype == np.int16
     assert out[0, 0] == 2
     assert out[0, 1] == VALID_COUNT_FILL
 
@@ -701,7 +701,7 @@ def _lazy_composite(output: str):
 @pytest.mark.parametrize("output", ["indexes", "bands"])
 @pytest.mark.parametrize(
     ("name", "fill", "dtype"),
-    [("DOY", DOY_FILL, np.int16), ("ValidCount", VALID_COUNT_FILL, np.uint8)],
+    [("DOY", DOY_FILL, np.int16), ("ValidCount", VALID_COUNT_FILL, np.int16)],
 )
 def test_build_composite_aux_layers_declare_their_fill_value(output, name, fill, dtype):
     result = _lazy_composite(output)

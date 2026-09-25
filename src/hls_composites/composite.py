@@ -30,11 +30,8 @@ DOY_FILL = -1
 DOY_LONG_NAME = "Day of year of the selected observation"
 """`DOY`'s band description."""
 
-VALID_COUNT_FILL = 255
-"""Fill value for `ValidCount`: the uint8 maximum.
-
-A tile-month holds nowhere near 255 granules, so no real count can reach it.
-"""
+VALID_COUNT_FILL = -999
+"""Fill value for `ValidCount`."""
 
 VALID_COUNT_LONG_NAME = "Count of valid observations"
 """`ValidCount`'s band description."""
@@ -339,12 +336,12 @@ def valid_count(bad_pixel_mask: np.ndarray) -> np.ndarray:
     Returns
     -------
     numpy.ndarray
-        `uint8` count of unmasked observations per pixel, shaped `(Y, X)`.
+        `int16` count of unmasked observations per pixel, shaped `(Y, X)`.
         Pixels with no valid observation get `VALID_COUNT_FILL` rather than 0, so
         they read as absent data rather than as a measured zero.
     """
     counts = np.sum(~bad_pixel_mask, axis=0)
-    return np.where(counts == 0, VALID_COUNT_FILL, counts).astype(np.uint8)
+    return np.where(counts == 0, VALID_COUNT_FILL, counts).astype(np.int16)
 
 
 def observation_doy(
@@ -494,7 +491,7 @@ def _composite_block(
     dict of str to numpy.ndarray
         One `(Y, X)` array per output variable, plus `Fmask` (uint8, the
         selected observation's QA, filled with `QA_FILL`), `ValidCount`
-        (uint8, filled with `VALID_COUNT_FILL`) and `DOY` (int16, filled with
+        (int16, filled with `VALID_COUNT_FILL`) and `DOY` (int16, filled with
         `DOY_FILL`). For `"indexes"`, `{index.name}` and `{index.name}_std`
         (int16) per index; for `"bands"`, `{band.name}` and `{band.name}_std`
         (int16) per reflectance band, in `reflectance` order.
@@ -680,7 +677,7 @@ def build_composite(
     -------
     xarray.Dataset
         Lazy Dataset carrying the granules' CRS/transform, with `Fmask`
-        (uint8), `ValidCount` (uint8) and `DOY` (int16) plus, per `output`, either `{index.name}`
+        (uint8), `ValidCount` (int16) and `DOY` (int16) plus, per `output`, either `{index.name}`
         and `{index.name}_std` per index or `{band.name}` and
         `{band.name}_std` per reflectance band (int16 either way).
 
@@ -723,7 +720,7 @@ def build_composite(
                 template2d, dtype=np.int16
             )
     template_vars[FMASK.name] = xr.zeros_like(template2d, dtype=FMASK.dtype)
-    template_vars["ValidCount"] = xr.zeros_like(template2d, dtype=np.uint8)
+    template_vars["ValidCount"] = xr.zeros_like(template2d, dtype=np.int16)
     template_vars["DOY"] = xr.zeros_like(template2d, dtype=np.int16)
     template = xr.Dataset(template_vars)
 
@@ -756,6 +753,7 @@ def build_composite(
                 composite[name].attrs["nodata"] = index.fill_value
                 composite[name].attrs["scale_factor"] = index.scale_factor
                 composite[name].attrs["long_name"] = long_name
+
     composite[FMASK.name].attrs["nodata"] = FMASK.nodata
     composite[FMASK.name].attrs["long_name"] = FMASK.long_name
     composite["ValidCount"].attrs["nodata"] = VALID_COUNT_FILL

@@ -5,7 +5,11 @@ import rasterio
 import xarray as xr
 from rasterio.transform import from_origin
 
-from hls_composites.composite import DOY_LONG_NAME, VALID_COUNT_LONG_NAME
+from hls_composites.composite import (
+    DOY_LONG_NAME,
+    VALID_COUNT_FILL,
+    VALID_COUNT_LONG_NAME,
+)
 from hls_composites.indices import NDVI
 from hls_composites.io import BLOCK_SIZE, write_rasters
 from hls_composites.models import DateRange
@@ -28,9 +32,9 @@ def _georef_dataset() -> xr.Dataset:
     ndvi_std = ndvi.copy()
     ndvi_std.attrs["long_name"] = f"{NDVI_LONG_NAME} standard deviation"
     valid_count = xr.DataArray(
-        (values % 4).astype(np.uint8), dims=("y", "x"), coords={"y": y, "x": x}
+        (values % 4).astype(np.int16), dims=("y", "x"), coords={"y": y, "x": x}
     )
-    valid_count.attrs["nodata"] = 255
+    valid_count.attrs["nodata"] = VALID_COUNT_FILL
     valid_count.attrs["long_name"] = VALID_COUNT_LONG_NAME
     doy = valid_count.copy()
     doy.attrs["long_name"] = DOY_LONG_NAME
@@ -116,12 +120,12 @@ def test_written_geotiff_round_trips_dtype_nodata_crs_and_scale(tmp_path):
         assert src.scales[0] == 1e-4
         np.testing.assert_array_equal(src.read(1), ds["NDVI"].values)
 
-    # Aux layers reserve the uint8 max as their fill, and the writer must
-    # stamp it on the image.
+    # Aux layers declare a negative fill, and the writer must stamp it on the
+    # image.
     for var in ("ValidCount", "DOY"):
         with rasterio.open(f"{prefix}.{var}.tif") as src:
-            assert src.dtypes[0] == "uint8"
-            assert src.nodata == 255
+            assert src.dtypes[0] == "int16"
+            assert src.nodata == VALID_COUNT_FILL
             assert src.scales[0] == 1.0
 
 

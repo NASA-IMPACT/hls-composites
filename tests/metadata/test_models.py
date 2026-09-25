@@ -67,7 +67,7 @@ def test_encoding_constants_match_the_index_definitions(meta):
     assert meta.scale_factor == 1e-4
     assert meta.add_offset == 0.0
     assert meta.fill_value == -19999
-    assert meta.qa_fill_value == 255
+    assert meta.qa_fill_value == -999
 
 
 def test_assets_are_the_written_geotiffs_sorted(meta):

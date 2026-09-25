@@ -126,8 +126,8 @@ def test_an_unscaled_band_declares_no_scale(item):
     """ValidCount is a count, not an encoded physical quantity."""
     band = item["assets"]["ValidCount"]["bands"][0]
 
-    assert band["data_type"] == "uint8"
-    assert band["nodata"] == 255
+    assert band["data_type"] == "int16"
+    assert band["nodata"] == -999
     assert "raster:scale" not in band
 
 

@@ -59,7 +59,7 @@ def granule_dir(tmp_path: Path) -> Path:
     dest = tmp_path / GRANULE_ID
     dest.mkdir()
 
-    valid = np.full((4, 4), 3, dtype=np.uint8)
+    valid = np.full((4, 4), 3, dtype=np.int16)
     valid[0, :] = VALID_COUNT_FILL  # one row of 4 is fill
     _write(dest / f"{GRANULE_ID}.ValidCount.tif", valid, VALID_COUNT_FILL)
 
