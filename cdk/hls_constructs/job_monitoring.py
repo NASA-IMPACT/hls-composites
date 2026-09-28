@@ -21,11 +21,13 @@ from batch_event_job_monitor_cdk import (
     AthenaOutputsTable,
     AthenaRecordsTable,
     AthenaStateTable,
+    IcebergRecordsTable,
     JobMonitorFunction,
     JobResubmitFunction,
     MonitoringQueues,
     PartitionKeySpec,
     ProcessingBucket,
+    RecordsRollupFunction,
     job_type_config,
 )
 from constructs import Construct
@@ -41,6 +43,7 @@ INVENTORY_PREFIX = "inventories/"
 
 STATE_INVENTORY_ID = "state"
 OUTPUTS_INVENTORY_ID = "outputs"
+RECORDS_INVENTORY_ID = "records"
 
 
 def partition_keys(year_month_start: str) -> list[PartitionKeySpec]:
@@ -135,6 +138,7 @@ class JobMonitoring(Construct):
             inventories=[
                 (STATE_INVENTORY_ID, "state/"),
                 (OUTPUTS_INVENTORY_ID, "outputs/"),
+                (RECORDS_INVENTORY_ID, "records/"),
             ],
             removal_policy=removal_policy,
             auto_delete_objects=is_dev,
@@ -220,6 +224,25 @@ class JobMonitoring(Construct):
             table_name="outputs-inventory",
             view_name="outputs",
             partition_keys=keys,
+        )
+        self.records_rollup_table = IcebergRecordsTable(
+            self,
+            "RecordsRollupTable",
+            database=self.database,
+            database_name=database_name,
+            processing_bucket_name=self.processing_bucket.bucket_name,
+            records_inventory_location_s3path=self.processing_bucket.inventory_location(
+                RECORDS_INVENTORY_ID
+            ),
+            inventory_datetime_start=dt.datetime(2026, 1, 1, 0, 0),
+            partition_keys=keys,
+        )
+        self.rollup_function = RecordsRollupFunction(
+            self,
+            "RecordsRollupFunction",
+            processing_bucket=self.processing_bucket.bucket,
+            database_name=database_name,
+            iceberg_table=self.records_rollup_table,
         )
 
         CfnOutput(
