@@ -49,7 +49,8 @@ DEFAULT_CREATION_OPTIONS: CogCreationOptions = {
 """GDAL COG creation options applied when the caller passes none.
 
 Matches the daily HLS products, so a composite decompresses and resamples its
-overviews the same way its inputs do.
+overviews the same way its inputs do. `predictor` is the fallback for a band
+that does not declare its own (see `BandSpec.predictor`).
 """
 
 ADD_OFFSET = 0.0
@@ -88,6 +89,9 @@ def _write_cog(
     nodata = array.attrs.get("nodata")
     if nodata is not None:
         profile["nodata"] = nodata
+    predictor = array.attrs.get("predictor")
+    if predictor is not None:
+        profile["predictor"] = predictor
     with rasterio.open(path, "w", **profile) as dst:
         dst.write(values, 1)
         scale = array.attrs.get("scale_factor")
@@ -146,7 +150,7 @@ def write_rasters(
     ----------
     computed : xarray.Dataset
         Computed composite, carrying CRS/transform and per-variable
-        `nodata`/`scale_factor` attrs.
+        `nodata`/`scale_factor`/`predictor` attrs.
     out_dir : str or pathlib.Path
         Directory the `{granule_id}/` output folder is created under.
     tile : str

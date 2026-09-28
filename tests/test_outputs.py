@@ -3,10 +3,16 @@
 import numpy as np
 import pytest
 
-from hls_composites.bands import FMASK, REFLECTANCE_BANDS
+from hls_composites.bands import (
+    FMASK,
+    NO_PREDICTOR,
+    REFLECTANCE_BANDS,
+    WIDE_RANGE_PREDICTOR,
+)
 from hls_composites.indices import DEFAULT_INDICES, NDVI
 from hls_composites.outputs import (
     DOY,
+    SELECTION_BANDS,
     VALID_COUNT,
     IndexBand,
     ReflectanceBand,
@@ -74,6 +80,30 @@ class TestDeclarations:
     def test_counts_and_days_cannot_be_confused_with_their_fill(self):
         assert VALID_COUNT.nodata < 0
         assert DOY.nodata < 1
+
+
+class TestPredictors:
+    """Differencing pays off on the wide-ranging value bands only."""
+
+    def test_a_value_band_takes_the_predictor_it_declares(self):
+        assert IndexBand(NDVI()).predictor == WIDE_RANGE_PREDICTOR
+        assert ReflectanceBand(REFLECTANCE_BANDS[0]).predictor == WIDE_RANGE_PREDICTOR
+
+    def test_a_deviation_never_differences(self):
+        assert IndexBand(NDVI(), deviation=True).predictor == NO_PREDICTOR
+        assert (
+            ReflectanceBand(REFLECTANCE_BANDS[0], deviation=True).predictor
+            == NO_PREDICTOR
+        )
+
+    def test_the_selection_layers_never_difference(self):
+        predictors = {band.name: band.predictor for band in SELECTION_BANDS}
+
+        assert predictors == {
+            "Fmask": NO_PREDICTOR,
+            "ValidCount": NO_PREDICTOR,
+            "DOY": NO_PREDICTOR,
+        }
 
 
 class TestFillAttributes:

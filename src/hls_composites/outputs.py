@@ -17,7 +17,7 @@ from typing import Protocol, runtime_checkable
 
 import numpy as np
 
-from hls_composites.bands import FMASK, REFLECTANCE_BANDS, BandSpec
+from hls_composites.bands import FMASK, NO_PREDICTOR, REFLECTANCE_BANDS, BandSpec
 from hls_composites.indices import ALL_INDICES, Index
 
 
@@ -49,6 +49,10 @@ class OutputBand(Protocol):
     def fill_attribute(self) -> str:
         """ECHO-10 attribute naming this layer's fill value."""
 
+    @property
+    def predictor(self) -> int:
+        """Compression predictor the layer is written with."""
+
 
 @dataclass(frozen=True)
 class DerivedBand:
@@ -71,6 +75,9 @@ class DerivedBand:
     scale : float, optional
         Factor converting stored values to physical units, by default 1.0 --
         a count and a day of year are already in their own units.
+    predictor : int, optional
+        Compression predictor the layer is written with, by default
+        `NO_PREDICTOR`: a count and a day of year are small repeating values.
     """
 
     name: str
@@ -79,6 +86,7 @@ class DerivedBand:
     nodata: int
     fill_attribute: str
     scale: float = 1.0
+    predictor: int = NO_PREDICTOR
 
 
 @dataclass(frozen=True)
@@ -127,6 +135,11 @@ class IndexBand:
         # As the daily HLS and HLS-VI products name their value bands' fill.
         return "FILLVALUE"
 
+    @property
+    def predictor(self) -> int:
+        # A deviation stays near zero however wide its value band ranges.
+        return NO_PREDICTOR if self.deviation else self.index.predictor
+
 
 @dataclass(frozen=True)
 class ReflectanceBand:
@@ -173,6 +186,11 @@ class ReflectanceBand:
         # As the daily HLS and HLS-VI products name their value bands' fill.
         return "FILLVALUE"
 
+    @property
+    def predictor(self) -> int:
+        # A deviation stays near zero however wide its value band ranges.
+        return NO_PREDICTOR if self.deviation else self.band.predictor
+
 
 @dataclass(frozen=True)
 class QaBand:
@@ -208,6 +226,10 @@ class QaBand:
     def fill_attribute(self) -> str:
         # As the daily HLS and HLS-VI products name their QA band's fill.
         return "QA_FILLVALUE"
+
+    @property
+    def predictor(self) -> int:
+        return self.band.predictor
 
 
 VALID_COUNT = DerivedBand(

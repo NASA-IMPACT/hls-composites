@@ -17,6 +17,22 @@ SR_SCALE = 0.0001
 SR_FILL = -9999
 QA_FILL = 255
 
+WIDE_RANGE_PREDICTOR = 2
+"""Horizontal differencing, for bands using much of their storage range.
+
+Differencing shrinks large neighbouring values into small ones, which
+compresses better than the values themselves.
+"""
+
+NO_PREDICTOR = 1
+"""No differencing, for bands whose values are small and often repeat.
+
+Counts, day-of-year, QA flags and the standard deviations sit near zero, where
+the stored bytes already repeat enough to compress as runs. Differencing breaks
+those runs -- a difference of -1 is stored as 0xFFFF -- and measures 5-19%
+larger across every band and sub-tile tested.
+"""
+
 
 @unique
 class Band(Enum):
@@ -62,6 +78,10 @@ class BandSpec:
         units, by default 1.0 (no scaling) -- e.g. Fmask, whose values
         are QA bit flags, not a scaled physical quantity. Applied
         *after* `valid_range` is checked, never before.
+    predictor : int, optional
+        Compression predictor the band is written with, by default
+        `WIDE_RANGE_PREDICTOR` -- e.g. Fmask, whose QA flags are small
+        repeating values, declares `NO_PREDICTOR`.
     """
 
     name: str
@@ -72,6 +92,7 @@ class BandSpec:
     long_name: str
     valid_range: tuple[int | None, int | None] = (None, None)
     scale: float = 1.0
+    predictor: int = WIDE_RANGE_PREDICTOR
 
     @property
     def is_reflectance(self) -> bool:
@@ -151,6 +172,7 @@ FMASK = BandSpec(
     nodata=QA_FILL,
     dtype=np.uint8,
     long_name="Quality assessment bit mask",
+    predictor=NO_PREDICTOR,
 )
 
 DEFAULT_BANDS: list[BandSpec] = [RED, GREEN, BLUE, NIR_NARROW, SWIR_1, SWIR_2, FMASK]
