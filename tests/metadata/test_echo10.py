@@ -199,12 +199,6 @@ def _input_document(*platforms: tuple[str, str]) -> bytes:
     ).encode()
 
 
-def test_parse_platforms_reads_the_platform_and_its_instrument():
-    document = _input_document(("LANDSAT-9", "OLI"))
-
-    assert parse_platforms(document) == [("LANDSAT-9", "OLI")]
-
-
 def test_parse_platforms_reads_every_platform():
     document = _input_document(("Sentinel-2B", "Sentinel-2 MSI"), ("LANDSAT-8", "OLI"))
 

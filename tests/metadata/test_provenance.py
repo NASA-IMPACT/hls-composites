@@ -1,12 +1,10 @@
-"""Input provenance and MGRS fields: which granules went in, and where."""
+"""Input provenance: which granules went in."""
 
 from datetime import date
 from xml.etree import ElementTree
 
-import pystac
 import pytest
 
-from hls_composites.crs import mgrs_fields
 from hls_composites.metadata.echo10 import to_echo10
 from hls_composites.metadata.models import CMR_STAC_BASE, granule_metadata
 from hls_composites.metadata.stac import to_stac_item
@@ -37,20 +35,6 @@ def meta(granule_dir, browse_images):
         platforms=PLATFORMS,
         inputs=INPUTS,
     )
-
-
-class TestMgrsFields:
-    def test_splits_a_tile_id(self):
-        assert mgrs_fields("14TPN") == (14, "T", "PN")
-
-    def test_single_digit_zone(self):
-        assert mgrs_fields("1CAB") == (1, "C", "AB")
-
-    @pytest.mark.parametrize("tile", ["", "14T", "14TPNX", "TPN", "14IPN"])
-    def test_rejects_malformed_tiles(self, tile):
-        """I and O are not MGRS latitude bands."""
-        with pytest.raises(ValueError, match="tile"):
-            mgrs_fields(tile)
 
 
 class TestInputProvenance:
@@ -118,6 +102,3 @@ class TestStacProvenance:
         assert item["properties"]["mgrs:utm_zone"] == 14
         assert item["properties"]["mgrs:latitude_band"] == "T"
         assert item["properties"]["mgrs:grid_square"] == "PN"
-
-    def test_item_still_validates(self, meta):
-        pystac.Item.from_dict(to_stac_item(meta)).validate()

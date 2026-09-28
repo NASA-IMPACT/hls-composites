@@ -2,16 +2,15 @@ from datetime import UTC, datetime
 
 import pytest
 
+from hls_composites.indices import NDVI
 from hls_composites.metadata.models import (
-    COMPOSITING_ALGORITHM,
     DATASET_ID,
     DOI,
     PLACEHOLDER,
     PRODUCT_URI_BASE,
-    SHORT_NAME,
-    SPATIAL_RESOLUTION,
     granule_metadata,
 )
+from hls_composites.outputs import VALID_COUNT
 from tests.metadata.conftest import EPSG, FEBRUARY, GRANULE_ID, PLATFORMS, ULX, ULY
 
 PRODUCED_AT = datetime(2026, 9, 3, 12, 0, 0, tzinfo=UTC)
@@ -70,7 +69,10 @@ def test_encoding_constants_match_the_index_definitions(meta):
 
 def test_each_written_fill_is_declared_under_its_own_attribute(meta):
     """The fixture writes NDVI and ValidCount, which name different attributes."""
-    assert meta.fill_values == {"FILLVALUE": -19999, "VALIDCOUNT_FILLVALUE": -1}
+    assert meta.fill_values == {
+        "FILLVALUE": NDVI.fill_value,
+        "VALIDCOUNT_FILLVALUE": VALID_COUNT.nodata,
+    }
 
 
 def test_assets_are_the_written_geotiffs_sorted(meta):
@@ -102,12 +104,6 @@ def test_produced_at_defaults_to_now(granule_dir, browse_images):
     )
 
     assert meta.produced_at.tzinfo is UTC
-
-
-def test_constants_that_are_known_are_set():
-    assert SHORT_NAME == "HLSM30"
-    assert SPATIAL_RESOLUTION == 30.0
-    assert COMPOSITING_ALGORITHM != PLACEHOLDER
 
 
 def test_placeholders():

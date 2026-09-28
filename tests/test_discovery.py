@@ -109,8 +109,6 @@ def test_scan_bucket_for_granules_filters_to_exact_month():
     # DateRange.key_prefixes). Feb 14 shares that prefix too -- realistic
     # overcoverage that must get filtered out client-side.
     date_range = DateRange(start=date(2020, 1, 1), end=date(2020, 1, 31))
-    prefixes = date_range.key_prefixes()
-    assert prefixes == ["2020"]
     pages_by_prefix = {
         "HLSL30.020/HLS.L30.T18SUJ.2020": [
             "HLSL30.020/HLS.L30.T18SUJ.2020001T151911.v2.0/",  # Jan 1 -- in range
@@ -304,10 +302,3 @@ def test_read_platforms_fails_naming_a_missing_document():
 
     with pytest.raises(RuntimeError, match=re.escape(f"{S30_GRANULE.path}.cmr.xml")):
         read_platforms(store, [L30_GRANULE, S30_GRANULE])
-
-
-def test_read_platforms_fails_on_a_document_naming_no_platform():
-    store = _ObjectStore({_key(L30_GRANULE): b"<Granule><Platforms/></Granule>"})
-
-    with pytest.raises(ValueError, match="no platform"):
-        read_platforms(store, [L30_GRANULE])

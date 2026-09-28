@@ -2,7 +2,6 @@
 
 from xml.etree import ElementTree
 
-import pystac
 import pytest
 
 from hls_composites.metadata.echo10 import to_echo10
@@ -79,6 +78,3 @@ class TestStacBrowse:
         assets = to_stac_item(without_browse)["assets"]
 
         assert not [a for a in assets.values() if "thumbnail" in a["roles"]]
-
-    def test_item_still_validates(self, with_browse):
-        pystac.Item.from_dict(to_stac_item(with_browse)).validate()

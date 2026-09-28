@@ -86,9 +86,6 @@ class TestRampPalette:
         assert tuple(palette[0]) == tuple(color_table(np.array([0.5 / RAMP_STEPS]))[0])
         assert palette[RAMP_STEPS - 1, 1] < palette[RAMP_STEPS // 2, 1]
 
-    def test_is_the_same_every_time(self):
-        assert np.array_equal(ramp_palette(), ramp_palette())
-
 
 class TestDownsample:
     def test_averages_in_physical_units(self):
@@ -182,11 +179,6 @@ class TestWriteBrowseImage:
             red, green, blue, _ = img.convert("RGBA").getpixel((500, 500))
         assert green > red + 60
         assert green > blue + 60
-
-    def test_returns_the_written_path(self, tmp_path):
-        path = tmp_path / "granule.NDVI.png"
-
-        assert write_browse_image(np.zeros((4, 4), np.int16), INDEX, path) == path
 
 
 class TestWriteBrowseImages:

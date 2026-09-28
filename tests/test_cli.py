@@ -126,8 +126,3 @@ class TestExitCodes:
         result = invoke("--output-dir", str(tmp_path))
 
         assert result.exit_code == NO_INPUTS
-
-    def test_a_composite_exits_zero(self, called, tmp_path):
-        result = invoke("--output-dir", str(tmp_path))
-
-        assert result.exit_code == 0

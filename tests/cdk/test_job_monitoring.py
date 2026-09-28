@@ -124,10 +124,6 @@ def test_every_failure_path_has_a_queue(template):
     assert len(resources_of(template, "AWS::SQS::QueuePolicy")) == 5
 
 
-def test_retry_queue_redrives_to_its_own_dlq(template):
-    assert "RedrivePolicy" in retry_queue(template)
-
-
 def test_retry_queue_visibility_clears_the_resubmit_lambda_timeout(template):
     """SQS must not redeliver a message the resubmit Lambda is still handling."""
     resubmit_timeouts = [

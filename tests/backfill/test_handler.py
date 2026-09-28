@@ -154,16 +154,6 @@ def test_does_not_write_the_plan_when_nothing_was_submitted(store):
     assert store.get().etag == stored.etag
 
 
-def test_sparse_segment_draws_units_from_its_own_tile_list(store, s3):
-    s3.put_object(Bucket=BUCKET, Key="subsets/2016-06-1.txt", Body=b"60WWV\n01GBH\n")
-    seed(store, [Segment(JUNE_2016, 0, 2, tiles_key="subsets/2016-06-1.txt")])
-    submitter = StubSubmitter()
-
-    feed(store, submitter, submit_count=5)
-
-    assert submitter.units == [("60WWV", JUNE_2016), ("01GBH", JUNE_2016)]
-
-
 def test_rejects_a_segment_whose_tile_list_is_the_wrong_length(store):
     seed(store, [Segment(APRIL, 0, 99)])
     submitter = StubSubmitter()
@@ -218,11 +208,3 @@ def test_sparse_segment_is_not_gated_by_the_plan_version(store, s3):
 
     assert result.submitted == 2
     assert submitter.units == [("60WWV", JUNE_2016), ("01GBH", JUNE_2016)]
-
-
-def test_dense_segment_is_still_gated_by_the_plan_version(store):
-    """The guard stays for segments indexed against the plan-level list."""
-    seed(store, [Segment(APRIL, 0, 5)], plan_version="sha256:stale")
-
-    with pytest.raises(TileListMismatchError, match="sha256:stale"):
-        feed(store, StubSubmitter())

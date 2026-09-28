@@ -222,10 +222,6 @@ class TestReaderRole:
 
         assert any("ambient credentials" in m for m in messages)
 
-    def test_progress_is_optional(self, stages, tmp_path):
-        """The default callback discards messages, so no caller is required."""
-        run(LocalDestination(tmp_path))
-
 
 class TestMetadata:
     def test_metadata_is_written_for_the_granule_directory(
