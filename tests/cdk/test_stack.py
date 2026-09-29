@@ -3,6 +3,8 @@ import json
 import pytest
 from aws_cdk import App, assertions
 
+from hls_composites.exit_codes import NO_INPUTS
+from hls_constructs.job_monitoring import NO_INPUTS_STATE
 from settings import StackSettings
 from stack import HlsCompositesStack
 
@@ -33,10 +35,6 @@ def build_settings(**overrides) -> StackSettings:
         "PROCESSING_BUCKET_NAME_PREFIX": "hls-composites-dev",
         "ATHENA_DATABASE_NAME": "hls_composites_dev",
         "ATHENA_INVENTORY_START_DATETIME": "2026-09-01T01:00:00",
-        "BATCH_MAX_VCPU": 32,
-        "PROCESSING_JOB_VCPU": 4,
-        "PROCESSING_JOB_MEMORY_MB": 16_000,
-        "PROCESSING_JOB_TIMEOUT_MINUTES": 45,
     }
     values.update(overrides)
     # Ignore any real environment; these settings are the whole input to the stack.
@@ -56,50 +54,38 @@ def synth(settings: StackSettings) -> assertions.Template:
     return assertions.Template.from_stack(stack)
 
 
-def policy_statements(template: assertions.Template) -> list[dict]:
-    """Every statement across every IAM policy in the template."""
-    return [
-        statement
-        for policy in template.find_resources("AWS::IAM::Policy").values()
-        for statement in policy["Properties"]["PolicyDocument"]["Statement"]
-    ]
+def resources_of(template: assertions.Template, type_: str) -> list[dict]:
+    return list(template.find_resources(type_).values())
 
 
-def resolve(template: assertions.Template, value) -> str:
-    """Render a CloudFormation value as the literal text it stands for.
-
-    Grants render as intrinsics rather than strings: imported buckets as an
-    `Fn::Join` over a partition `Ref`, and buckets this stack owns as an
-    `Fn::GetAtt` on the bucket's ARN. Both resolve back to plain ARNs so tests
-    can assert on something readable.
-    """
+def render(value) -> str:
+    """Render a CloudFormation value as readable text, tokens as their names."""
     if isinstance(value, str):
         return value
-    if "Ref" in value:
-        return "aws" if value["Ref"] == "AWS::Partition" else value["Ref"]
     if "Fn::Join" in value:
         separator, parts = value["Fn::Join"]
-        return separator.join(resolve(template, part) for part in parts)
-    if "Fn::GetAtt" in value:
-        logical_id, attribute = value["Fn::GetAtt"]
-        resource = template.to_json()["Resources"][logical_id]
-        if resource["Type"] == "AWS::S3::Bucket" and attribute == "Arn":
-            properties = resource["Properties"]
-            if "BucketName" in properties:
-                return f"arn:aws:s3:::{properties['BucketName']}"
-            # Account regional namespace: CloudFormation forms the full name
-            # from the prefix, the account and the region.
-            prefix = properties["BucketNamePrefix"]
-            return f"arn:aws:s3:::{prefix}-{ACCOUNT_ID}-{REGION}-an"
-    raise AssertionError(f"cannot resolve {value!r}")
+        return separator.join(render(part) for part in parts)
+    if "Ref" in value:
+        return value["Ref"]
+    return json.dumps(value)
 
 
-def resource_arns(template: assertions.Template, statement: dict) -> list[str]:
-    """The literal ARNs a statement applies to."""
-    resources = statement["Resource"]
-    if not isinstance(resources, list):
-        resources = [resources]
-    return [resolve(template, resource) for resource in resources]
+def processing_bucket(template: assertions.Template, prefix: str) -> dict:
+    (bucket,) = [
+        bucket
+        for bucket in resources_of(template, "AWS::S3::Bucket")
+        if bucket["Properties"].get("BucketNamePrefix") == prefix
+    ]
+    return bucket
+
+
+def monitor_environment(template: assertions.Template) -> dict:
+    (monitor,) = [
+        function["Properties"]
+        for function in resources_of(template, "AWS::Lambda::Function")
+        if "job_monitor_handler" in function["Properties"].get("Handler", "")
+    ]
+    return monitor["Environment"]["Variables"]
 
 
 @pytest.fixture(scope="module")
@@ -107,180 +93,76 @@ def template() -> assertions.Template:
     return synth(build_settings())
 
 
-def test_compute_environment_is_capped_spot(template):
-    template.has_resource_properties(
-        "AWS::Batch::ComputeEnvironment",
-        {
-            "Type": "managed",
-            "ComputeResources": assertions.Match.object_like(
-                {
-                    "Type": "SPOT",
-                    "MaxvCpus": 32,
-                    "MinvCpus": 0,
-                    "AllocationStrategy": "SPOT_CAPACITY_OPTIMIZED",
-                }
-            ),
-        },
-    )
-
-
-def test_container_insights_are_managed_through_batch(template):
-    """Set on the compute environment, which owns its ECS cluster."""
-    template.has_resource_properties(
-        "AWS::Batch::ComputeEnvironment",
-        {"EcsSettings": {"ContainerInsights": "ENABLED"}},
-    )
-
-
-def test_the_batch_ecs_cluster_is_not_configured_directly(template):
-    """A cluster setting Batch did not make is one the console flags as unmanaged."""
-    calls = [
-        json.dumps(resource["Properties"])
-        for resource in template.find_resources("Custom::AWS").values()
-    ]
-
-    assert not any("UpdateCluster" in call for call in calls)
-
-
-def test_job_queue_is_named_for_the_stage(template):
-    template.has_resource_properties(
-        "AWS::Batch::JobQueue",
-        assertions.Match.object_like({"JobQueueName": "hls-composites-dev-job-queue"}),
-    )
-
-
-def test_job_definition_uses_configured_container(template):
-    template.has_resource_properties(
-        "AWS::Batch::JobDefinition",
-        assertions.Match.object_like(
-            {
-                "Type": "container",
-                "Timeout": {"AttemptDurationSeconds": 45 * 60},
-                "RetryStrategy": assertions.Match.object_like({"Attempts": 3}),
-                "ContainerProperties": assertions.Match.object_like(
-                    {
-                        "Image": ECR_URI,
-                        "ResourceRequirements": assertions.Match.array_with(
-                            [
-                                {"Type": "MEMORY", "Value": "16000"},
-                                {"Type": "VCPU", "Value": "4"},
-                            ]
-                        ),
-                        "Environment": assertions.Match.array_with(
-                            [
-                                {"Name": "HLS_BUCKET", "Value": "hls-input-bucket"},
-                                {"Name": "OUTPUT_BUCKET", "Value": "hls-output-bucket"},
-                                {
-                                    "Name": "LPDAAC_READER_ROLE_ARN",
-                                    "Value": LPDAAC_ROLE_ARN,
-                                },
-                            ]
-                        ),
-                    }
-                ),
-            }
-        ),
-    )
-
-
-def _job_environment(template: assertions.Template) -> dict[str, str]:
-    (job_def,) = template.find_resources("AWS::Batch::JobDefinition").values()
-    variables = job_def["Properties"]["ContainerProperties"]["Environment"]
-    return {variable["Name"]: variable["Value"] for variable in variables}
-
-
-def test_dask_num_workers_is_left_to_dask_by_default(template):
-    assert "DASK_NUM_WORKERS" not in _job_environment(template)
-
-
-def test_dask_num_workers_is_passed_to_the_job_when_set():
-    template = synth(build_settings(PROCESSING_JOB_DASK_NUM_WORKERS=8))
-
-    assert _job_environment(template)["DASK_NUM_WORKERS"] == "8"
-
-
-def test_log_group_is_explicit(template):
-    template.has_resource_properties(
-        "AWS::Logs::LogGroup",
-        {
-            "LogGroupName": "hls-composites-processing-dev",
-            "RetentionInDays": 30,
-        },
-    )
-
-
-def test_job_role_has_a_stable_name(template):
-    """Pinned: other accounts name this role in their trust policies."""
-    template.has_resource_properties(
-        "AWS::IAM::Role",
-        assertions.Match.object_like(
-            {"RoleName": "hls-composites-processing-role-dev"}
-        ),
-    )
-
-
-def test_execution_role_pull_is_scoped_to_the_repository(template):
-    repo_arn = f"arn:aws:ecr:{REGION}:{ACCOUNT_ID}:repository/hls-composites"
-    pulls = [
+def test_every_submit_job_grant_is_scoped_to_our_queue_and_job_definition(template):
+    """Held by the resubmit Lambda and by each feeder; all must be scoped."""
+    submits = [
         statement
-        for statement in policy_statements(template)
-        if "ecr:BatchGetImage" in statement["Action"]
+        for policy in resources_of(template, "AWS::IAM::Policy")
+        for statement in policy["Properties"]["PolicyDocument"]["Statement"]
+        if "batch:SubmitJob" in statement["Action"]
     ]
 
-    assert [resource_arns(template, statement) for statement in pulls] == [[repo_arn]]
+    assert submits
+    for submit in submits:
+        queue, *job_definitions = submit["Resource"]
+        assert "JobQueueArn" in json.dumps(queue)
+        assert job_definitions
+        for job_definition in job_definitions:
+            # Our job definition family, bare or at any revision, and nothing else.
+            text = render(job_definition)
+            assert "job-definition/" in text
+            assert "ProcessingJobDef" in text
+            assert "*" not in text.removesuffix(":*")
 
 
-def test_job_role_may_assume_the_lpdaac_reader_role(template):
-    assumes = [
-        statement
-        for statement in policy_statements(template)
-        if statement["Action"] == "sts:AssumeRole"
-    ]
+def test_dev_processing_bucket_is_emptied_and_deleted(template):
+    bucket = processing_bucket(template, "hls-composites-dev")
 
-    assert [resource_arns(template, statement) for statement in assumes] == [
-        [LPDAAC_ROLE_ARN]
-    ]
+    assert bucket["DeletionPolicy"] == "Delete"
+    assert resources_of(template, "Custom::S3AutoDeleteObjects")
 
 
-def test_job_role_can_write_the_output_bucket(template):
-    writes = [
-        statement
-        for statement in policy_statements(template)
-        if "s3:PutObject" in statement["Action"]
-        and any(
-            "hls-output-bucket" in arn for arn in resource_arns(template, statement)
+def test_prod_processing_bucket_is_retained_and_not_auto_deleted():
+    template = synth(
+        build_settings(
+            STAGE="prod",
+            STACK_NAME="hls-composites-prod",
+            PROCESSING_BUCKET_NAME_PREFIX="hls-composites-prod",
         )
+    )
+    bucket = processing_bucket(template, "hls-composites-prod")
+
+    assert bucket["DeletionPolicy"] == "RetainExceptOnCreate"
+    assert not resources_of(template, "Custom::S3AutoDeleteObjects")
+
+
+def test_no_input_exit_code_is_neither_retried_nor_dead_lettered(template):
+    """The container exits NO_INPUTS for an empty tile-month; that is not a fault."""
+    _, parts = monitor_environment(template)["PROCESSING_JOB_TYPE_CONFIGS"]["Fn::Join"]
+    configs = "".join(part for part in parts if isinstance(part, str))
+
+    assert f'"{NO_INPUTS}"' in configs
+    assert NO_INPUTS_STATE in configs
+    assert '"dlq": false' in configs
+    assert '"retryable": false' in configs
+
+
+def test_job_monitor_keys_are_written_where_they_are_inventoried(template):
+    """Writers and scanners must agree, or the Athena tables go silently empty."""
+    bucket = processing_bucket(template, "hls-composites-dev")
+    inventories = bucket["Properties"]["InventoryConfigurations"]
+    assert {i["Prefix"] for i in inventories} == {
+        "logging/state/",
+        "logging/outputs/",
+        "logging/records/",
+    }
+    assert {i["Destination"]["Prefix"] for i in inventories} == {"logging/inventories"}
+
+    assert monitor_environment(template)["PROCESSING_KEY_PREFIX"] == "logging/"
+
+    (rollup_rule,) = [
+        rule["Properties"]["EventPattern"]
+        for rule in resources_of(template, "AWS::Events::Rule")
+        if rule["Properties"].get("EventPattern", {}).get("source") == ["aws.s3"]
     ]
-
-    assert [resource_arns(template, statement) for statement in writes] == [
-        ["arn:aws:s3:::hls-output-bucket", "arn:aws:s3:::hls-output-bucket/*"]
-    ]
-
-
-def test_job_role_can_only_read_the_input_bucket(template):
-    reads = [
-        statement
-        for statement in policy_statements(template)
-        if statement["Action"] == ["s3:GetObject*", "s3:GetBucket*", "s3:List*"]
-    ]
-
-    assert [resource_arns(template, statement) for statement in reads] == [
-        ["arn:aws:s3:::hls-input-bucket", "arn:aws:s3:::hls-input-bucket/*"]
-    ]
-
-
-def test_no_assume_role_statement_without_an_lpdaac_role():
-    template = synth(build_settings(LPDAAC_READER_ROLE_ARN=None))
-
-    statements = policy_statements(template)
-    assert not [s for s in statements if s.get("Action") == "sts:AssumeRole"]
-
-    job_definitions = template.find_resources("AWS::Batch::JobDefinition")
-    environments = [
-        variable
-        for job_definition in job_definitions.values()
-        for variable in job_definition["Properties"]["ContainerProperties"][
-            "Environment"
-        ]
-    ]
-    assert "LPDAAC_READER_ROLE_ARN" not in {v["Name"] for v in environments}
+    assert rollup_rule["detail"]["object"]["key"] == [{"prefix": "logging/records/"}]

@@ -19,13 +19,14 @@ from aws_cdk import (
 from batch_event_job_monitor.models import ExitCodeOutcomesBuilder, RetryPolicy
 from batch_event_job_monitor_cdk import (
     AthenaOutputsTable,
-    AthenaRecordsTable,
     AthenaStateTable,
     JobMonitorFunction,
     JobResubmitFunction,
     MonitoringQueues,
     PartitionKeySpec,
     ProcessingBucket,
+    RecordsRollupFunction,
+    RecordsRollupTable,
     job_type_config,
 )
 from constructs import Construct
@@ -36,11 +37,9 @@ from hls_composites.models import JOB_TYPE
 NO_INPUTS_STATE = "FAILURE_NO_INPUTS"
 """State recorded when a tile-month had no granules to composite."""
 
-INVENTORY_PREFIX = "inventories/"
-"""Shared root the bucket's S3 Inventory reports are delivered under."""
-
 STATE_INVENTORY_ID = "state"
 OUTPUTS_INVENTORY_ID = "outputs"
+RECORDS_INVENTORY_ID = "records"
 
 
 def partition_keys(year_month_start: str) -> list[PartitionKeySpec]:
@@ -84,6 +83,8 @@ class JobMonitoring(Construct):
         job_queue: batch.IJobQueue,
         job_definition: batch.IJobDefinition,
         processing_bucket_name_prefix: str,
+        key_prefix: str,
+        inventory_prefix: str,
         retry_max_attempts: int,
         stage: str,
         database_name: str,
@@ -104,6 +105,12 @@ class JobMonitoring(Construct):
             Prefix of the bucket holding records, state pointers, and the
             output index. Created here, in the account regional namespace, so
             its full name is {prefix}-{account}-{region}-an.
+        key_prefix:
+            Parent prefix every job monitor key in the processing bucket is
+            written under. Empty writes at the bucket root.
+        inventory_prefix:
+            Root the bucket's S3 Inventory reports are delivered under,
+            relative to `key_prefix`.
         retry_max_attempts:
             Attempts a job gets before a retryable failure becomes terminal.
         stage:
@@ -131,10 +138,12 @@ class JobMonitoring(Construct):
             self,
             "ProcessingBucket",
             bucket_name_prefix=processing_bucket_name_prefix,
-            inventory_prefix=INVENTORY_PREFIX,
+            key_prefix=key_prefix,
+            inventory_prefix=inventory_prefix,
             inventories=[
                 (STATE_INVENTORY_ID, "state/"),
                 (OUTPUTS_INVENTORY_ID, "outputs/"),
+                (RECORDS_INVENTORY_ID, "records/"),
             ],
             removal_policy=removal_policy,
             auto_delete_objects=is_dev,
@@ -166,6 +175,7 @@ class JobMonitoring(Construct):
             self,
             "JobMonitor",
             processing_bucket=self.processing_bucket.bucket,
+            key_prefix=self.processing_bucket.key_prefix,
             job_type_configs=self.job_type_configs,
             queues=self.queues,
         )
@@ -186,15 +196,6 @@ class JobMonitoring(Construct):
 
         keys = partition_keys(year_month_start)
 
-        self.records_table = AthenaRecordsTable(
-            self,
-            "RecordsTable",
-            database=self.database,
-            database_name=database_name,
-            records_bucket_name=self.processing_bucket.bucket_name,
-            partition_keys=keys,
-            table_name="records",
-        )
         self.state_table = AthenaStateTable(
             self,
             "StateTable",
@@ -220,6 +221,26 @@ class JobMonitoring(Construct):
             table_name="outputs-inventory",
             view_name="outputs",
             partition_keys=keys,
+        )
+        self.records_rollup_table = RecordsRollupTable(
+            self,
+            "RecordsRollupTable",
+            database=self.database,
+            database_name=database_name,
+            processing_bucket_name=self.processing_bucket.bucket_name,
+            key_prefix=self.processing_bucket.key_prefix,
+            records_inventory_location_s3path=self.processing_bucket.inventory_location(
+                RECORDS_INVENTORY_ID
+            ),
+            inventory_datetime_start=inventory_start_datetime,
+            partition_keys=keys,
+        )
+        self.records_rollup_function = RecordsRollupFunction(
+            self,
+            "RecordsRollupFunction",
+            processing_bucket=self.processing_bucket.bucket,
+            database_name=database_name,
+            rollup_table=self.records_rollup_table,
         )
 
         CfnOutput(
