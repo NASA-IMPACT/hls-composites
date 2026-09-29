@@ -120,6 +120,7 @@ class HlsCompositesStack(Stack):
             job_queue=self.batch_infra.queue,
             job_definition=self.processing_job.job_def,
             processing_bucket_name_prefix=settings.PROCESSING_BUCKET_NAME_PREFIX,
+            inventory_prefix=settings.INVENTORY_PREFIX,
             retry_max_attempts=settings.JOB_RETRY_MAX_ATTEMPTS,
             stage=settings.STAGE,
             database_name=settings.ATHENA_DATABASE_NAME,

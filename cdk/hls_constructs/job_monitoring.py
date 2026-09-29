@@ -38,9 +38,6 @@ from hls_composites.models import JOB_TYPE
 NO_INPUTS_STATE = "FAILURE_NO_INPUTS"
 """State recorded when a tile-month had no granules to composite."""
 
-INVENTORY_PREFIX = "inventories/"
-"""Shared root the bucket's S3 Inventory reports are delivered under."""
-
 STATE_INVENTORY_ID = "state"
 OUTPUTS_INVENTORY_ID = "outputs"
 RECORDS_INVENTORY_ID = "records"
@@ -87,6 +84,7 @@ class JobMonitoring(Construct):
         job_queue: batch.IJobQueue,
         job_definition: batch.IJobDefinition,
         processing_bucket_name_prefix: str,
+        inventory_prefix: str,
         retry_max_attempts: int,
         stage: str,
         database_name: str,
@@ -107,6 +105,8 @@ class JobMonitoring(Construct):
             Prefix of the bucket holding records, state pointers, and the
             output index. Created here, in the account regional namespace, so
             its full name is {prefix}-{account}-{region}-an.
+        inventory_prefix:
+            Shared root the bucket's S3 Inventory reports are delivered under.
         retry_max_attempts:
             Attempts a job gets before a retryable failure becomes terminal.
         stage:
@@ -134,7 +134,7 @@ class JobMonitoring(Construct):
             self,
             "ProcessingBucket",
             bucket_name_prefix=processing_bucket_name_prefix,
-            inventory_prefix=INVENTORY_PREFIX,
+            inventory_prefix=inventory_prefix,
             inventories=[
                 (STATE_INVENTORY_ID, "state/"),
                 (OUTPUTS_INVENTORY_ID, "outputs/"),
