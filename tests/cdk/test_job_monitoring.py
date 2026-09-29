@@ -84,13 +84,15 @@ def test_processing_bucket_inventories_cover_state_and_outputs(template):
 
     inventories = bucket["Properties"]["InventoryConfigurations"]
     assert {(i["Id"], i["Prefix"]) for i in inventories} == {
-        ("state", "state/"),
-        ("outputs", "outputs/"),
-        ("records", "records/"),
+        ("state", "logging/state/"),
+        ("outputs", "logging/outputs/"),
+        ("records", "logging/records/"),
     }
     assert all(i["ScheduleFrequency"] == "Daily" for i in inventories)
     assert all(i["Destination"]["Format"] == "Parquet" for i in inventories)
-    assert all(i["Destination"]["Prefix"] == "inventories" for i in inventories)
+    assert all(
+        i["Destination"]["Prefix"] == "logging/inventories" for i in inventories
+    )
     # Reports land in the same bucket they inventory.
     assert all(
         render(i["Destination"]["BucketArn"])
@@ -119,6 +121,7 @@ def test_monitor_lambda_knows_the_bucket_and_both_queues(template):
     environment = monitor["Environment"]["Variables"]
     # The bucket is created in this stack, so its name arrives as a Ref.
     assert "ProcessingBucket" in environment["PROCESSING_BUCKET_NAME"]["Ref"]
+    assert environment["PROCESSING_KEY_PREFIX"] == "logging/"
     assert "JOB_RETRY_QUEUE_URL" in environment
     assert "JOB_FAILURE_DLQ_URL" in environment
 

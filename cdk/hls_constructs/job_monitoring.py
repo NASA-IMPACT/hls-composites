@@ -84,6 +84,7 @@ class JobMonitoring(Construct):
         job_queue: batch.IJobQueue,
         job_definition: batch.IJobDefinition,
         processing_bucket_name_prefix: str,
+        key_prefix: str,
         inventory_prefix: str,
         retry_max_attempts: int,
         stage: str,
@@ -105,8 +106,12 @@ class JobMonitoring(Construct):
             Prefix of the bucket holding records, state pointers, and the
             output index. Created here, in the account regional namespace, so
             its full name is {prefix}-{account}-{region}-an.
+        key_prefix:
+            Parent prefix every job monitor key in the processing bucket is
+            written under. Empty writes at the bucket root.
         inventory_prefix:
-            Shared root the bucket's S3 Inventory reports are delivered under.
+            Root the bucket's S3 Inventory reports are delivered under,
+            relative to `key_prefix`.
         retry_max_attempts:
             Attempts a job gets before a retryable failure becomes terminal.
         stage:
@@ -134,6 +139,7 @@ class JobMonitoring(Construct):
             self,
             "ProcessingBucket",
             bucket_name_prefix=processing_bucket_name_prefix,
+            key_prefix=key_prefix,
             inventory_prefix=inventory_prefix,
             inventories=[
                 (STATE_INVENTORY_ID, "state/"),
@@ -170,6 +176,7 @@ class JobMonitoring(Construct):
             self,
             "JobMonitor",
             processing_bucket=self.processing_bucket.bucket,
+            key_prefix=self.processing_bucket.key_prefix,
             job_type_configs=self.job_type_configs,
             queues=self.queues,
         )
@@ -231,6 +238,7 @@ class JobMonitoring(Construct):
             database=self.database,
             database_name=database_name,
             processing_bucket_name=self.processing_bucket.bucket_name,
+            key_prefix=self.processing_bucket.key_prefix,
             records_inventory_location_s3path=self.processing_bucket.inventory_location(
                 RECORDS_INVENTORY_ID
             ),

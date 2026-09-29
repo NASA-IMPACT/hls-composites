@@ -51,7 +51,12 @@ class StackSettings(BaseSettings):
     # the same prefix templates cleanly across accounts and regions. The suffix
     # counts against S3's 63-character limit, leaving 37 for the prefix.
     PROCESSING_BUCKET_NAME_PREFIX: str
-    # Shared root the processing bucket's S3 Inventory reports are delivered under
+    # Parent prefix every job monitor key is written under (records, state,
+    # outputs, inventories, rollup). Changing it on a live bucket orphans
+    # everything written under the old value.
+    PROCESSING_KEY_PREFIX: str = "logging"
+    # Root the S3 Inventory reports are delivered under, relative to
+    # PROCESSING_KEY_PREFIX
     INVENTORY_PREFIX: str = "inventories/"
 
     # ----- LPDAAC access
