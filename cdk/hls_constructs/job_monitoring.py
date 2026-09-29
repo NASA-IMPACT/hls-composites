@@ -234,7 +234,7 @@ class JobMonitoring(Construct):
             records_inventory_location_s3path=self.processing_bucket.inventory_location(
                 RECORDS_INVENTORY_ID
             ),
-            inventory_datetime_start=dt.datetime(2026, 1, 1, 0, 0),
+            inventory_datetime_start=inventory_start_datetime,
             partition_keys=keys,
         )
         self.rollup_function = RecordsRollupFunction(
