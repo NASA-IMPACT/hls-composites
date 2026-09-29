@@ -198,7 +198,6 @@ def test_glue_database_and_tables_exist(template):
         for table in resources_of(template, "AWS::Glue::Table")
     }
     assert set(tables) == {
-        "records",
         "state-inventory",
         "state",
         "outputs-inventory",
@@ -208,26 +207,6 @@ def test_glue_database_and_tables_exist(template):
     }
     assert tables["state"]["TableType"] == "VIRTUAL_VIEW"
     assert tables["outputs"]["TableType"] == "VIRTUAL_VIEW"
-
-
-def test_records_table_projects_job_type_and_year_month(template):
-    (records,) = [
-        table["Properties"]["TableInput"]
-        for table in resources_of(template, "AWS::Glue::Table")
-        if table["Properties"]["TableInput"]["Name"] == "records"
-    ]
-
-    parameters = records["Parameters"]
-    assert parameters["projection.enabled"] == "true"
-    assert parameters["projection.job_type.values"] == JOB_TYPE
-    assert parameters["projection.year_month.type"] == "date"
-    assert parameters["projection.year_month.format"] == "yyyy-MM"
-    assert parameters["projection.year_month.range"] == "2013-01,NOW"
-    assert "projection.tile_id.type" not in parameters
-    assert render(parameters["storage.location.template"]) == (
-        "s3://hls-composites-dev-<account>-<region>-an"
-        "/records/job_type=${job_type}/year_month=${year_month}/"
-    )
 
 
 def test_partition_key_order_matches_the_key_path():

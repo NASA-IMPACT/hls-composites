@@ -19,7 +19,6 @@ from aws_cdk import (
 from batch_event_job_monitor.models import ExitCodeOutcomesBuilder, RetryPolicy
 from batch_event_job_monitor_cdk import (
     AthenaOutputsTable,
-    AthenaRecordsTable,
     AthenaStateTable,
     JobMonitorFunction,
     JobResubmitFunction,
@@ -197,15 +196,6 @@ class JobMonitoring(Construct):
 
         keys = partition_keys(year_month_start)
 
-        self.records_table = AthenaRecordsTable(
-            self,
-            "RecordsTable",
-            database=self.database,
-            database_name=database_name,
-            records_bucket_name=self.processing_bucket.bucket_name,
-            partition_keys=keys,
-            table_name="records",
-        )
         self.state_table = AthenaStateTable(
             self,
             "StateTable",
