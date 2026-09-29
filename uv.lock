@@ -307,8 +307,8 @@ wheels = [
 
 [[package]]
 name = "batch-event-job-monitor"
-version = "0.1.2.dev39+gbdc7dcb66"
-source = { git = "https://github.com/NASA-IMPACT/batch-event-job-monitor?branch=feat%2Flog-stream-name-events#bdc7dcb668b6f789721f23dad84b3ac266bc9033" }
+version = "0.1.2.dev46+g391fd1201"
+source = { git = "https://github.com/NASA-IMPACT/batch-event-job-monitor?branch=feat%2Flog-stream-name-events#391fd12011955a79dba2ed41f3ab8487aafaedf7" }
 dependencies = [
     { name = "boto3" },
 ]
