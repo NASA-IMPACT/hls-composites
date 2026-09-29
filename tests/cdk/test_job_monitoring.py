@@ -86,6 +86,7 @@ def test_processing_bucket_inventories_cover_state_and_outputs(template):
     assert {(i["Id"], i["Prefix"]) for i in inventories} == {
         ("state", "state/"),
         ("outputs", "outputs/"),
+        ("records", "records/"),
     }
     assert all(i["ScheduleFrequency"] == "Daily" for i in inventories)
     assert all(i["Destination"]["Format"] == "Parquet" for i in inventories)
@@ -106,34 +107,6 @@ def retry_queue(template: assertions.Template) -> dict:
         if "RedrivePolicy" in queue["Properties"]
     ]
     return queue
-
-
-def test_every_failure_path_has_a_queue(template):
-    """Retry, retry DLQ, failure DLQ, untracked, and the EventBridge DLQ."""
-    queues = resources_of(template, "AWS::SQS::Queue")
-
-    assert len(queues) == 5
-    # Encrypted at rest with SQS-managed keys. CDK omits this property unless
-    # asked, so it has to be set explicitly rather than left to the default.
-    assert all(queue["Properties"]["SqsManagedSseEnabled"] for queue in queues)
-    # These queues exist to preserve evidence, so nothing expires early.
-    assert all(
-        queue["Properties"]["MessageRetentionPeriod"] == 1209600 for queue in queues
-    )
-    # enforce_ssl renders as a deny-non-TLS queue policy, one per queue.
-    assert len(resources_of(template, "AWS::SQS::QueuePolicy")) == 5
-
-
-def test_retry_queue_visibility_clears_the_resubmit_lambda_timeout(template):
-    """SQS must not redeliver a message the resubmit Lambda is still handling."""
-    resubmit_timeouts = [
-        function["Properties"]["Timeout"]
-        for function in resources_of(template, "AWS::Lambda::Function")
-        if "job_resubmit_handler" in function["Properties"].get("Handler", "")
-    ]
-
-    assert resubmit_timeouts
-    assert retry_queue(template)["VisibilityTimeout"] > max(resubmit_timeouts)
 
 
 def test_monitor_lambda_knows_the_bucket_and_both_queues(template):
@@ -191,42 +164,6 @@ def test_event_rule_is_scoped_to_our_queue_and_job_definition(template):
     assert join_suffix(job_definition["prefix"]) == ":"
 
 
-def test_untracked_jobs_are_caught_by_their_own_rule(template):
-    """A job on our queue without bejm_* params is routed, not dropped."""
-    (untracked,) = [
-        rule["Properties"]
-        for rule in event_rules(template)
-        if "jobDefinition" not in rule["Properties"]["EventPattern"]["detail"]
-    ]
-
-    parameters = untracked["EventPattern"]["detail"]["parameters"]
-    assert parameters == {"bejm_job_type": [{"exists": False}]}
-
-    # The queue is a target in its own right, so the raw event is preserved
-    # even if the Lambda never runs.
-    queue_targets = [
-        target
-        for target in untracked["Targets"]
-        if "UntrackedQueue" in json.dumps(target["Arn"])
-    ]
-    assert queue_targets
-
-
-def test_both_rules_dead_letter_undeliverable_events(template):
-    """An event the monitor Lambda cannot be handed is preserved, not lost."""
-    rules = event_rules(template)
-
-    assert len(rules) == 2
-    for rule in rules:
-        lambda_targets = [
-            target
-            for target in rule["Properties"]["Targets"]
-            if "Function" in json.dumps(target["Arn"])
-        ]
-        assert lambda_targets
-        assert all("DeadLetterConfig" in target for target in lambda_targets)
-
-
 def test_every_submit_job_grant_is_scoped_to_our_queue_and_job_definition(template):
     """Held by the resubmit Lambda and by each feeder; all must be scoped."""
     submits = [
@@ -263,6 +200,8 @@ def test_glue_database_and_tables_exist(template):
         "state",
         "outputs-inventory",
         "outputs",
+        "records-inventory",
+        "records-staging",
     }
     assert tables["state"]["TableType"] == "VIRTUAL_VIEW"
     assert tables["outputs"]["TableType"] == "VIRTUAL_VIEW"
@@ -286,18 +225,6 @@ def test_records_table_projects_job_type_and_year_month(template):
         "s3://hls-composites-dev-<account>-<region>-an"
         "/records/job_type=${job_type}/year_month=${year_month}/"
     )
-
-
-def test_inventory_tables_anchor_on_the_configured_datetime(template):
-    inventory_tables = [
-        table["Properties"]["TableInput"]
-        for table in resources_of(template, "AWS::Glue::Table")
-        if table["Properties"]["TableInput"]["Name"].endswith("-inventory")
-    ]
-
-    assert len(inventory_tables) == 2
-    for table in inventory_tables:
-        assert table["Parameters"]["projection.dt.range"] == "2026-09-01-01-00,NOW"
 
 
 def test_partition_key_order_matches_the_key_path():

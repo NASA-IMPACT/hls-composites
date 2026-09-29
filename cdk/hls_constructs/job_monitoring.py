@@ -21,13 +21,13 @@ from batch_event_job_monitor_cdk import (
     AthenaOutputsTable,
     AthenaRecordsTable,
     AthenaStateTable,
-    IcebergRecordsTable,
     JobMonitorFunction,
     JobResubmitFunction,
     MonitoringQueues,
     PartitionKeySpec,
     ProcessingBucket,
     RecordsRollupFunction,
+    RecordsRollupTable,
     job_type_config,
 )
 from constructs import Construct
@@ -225,7 +225,7 @@ class JobMonitoring(Construct):
             view_name="outputs",
             partition_keys=keys,
         )
-        self.records_rollup_table = IcebergRecordsTable(
+        self.records_rollup_table = RecordsRollupTable(
             self,
             "RecordsRollupTable",
             database=self.database,
@@ -237,12 +237,12 @@ class JobMonitoring(Construct):
             inventory_datetime_start=inventory_start_datetime,
             partition_keys=keys,
         )
-        self.rollup_function = RecordsRollupFunction(
+        self.records_rollup_function = RecordsRollupFunction(
             self,
             "RecordsRollupFunction",
             processing_bucket=self.processing_bucket.bucket,
             database_name=database_name,
-            iceberg_table=self.records_rollup_table,
+            rollup_table=self.records_rollup_table,
         )
 
         CfnOutput(
