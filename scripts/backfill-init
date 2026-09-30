@@ -90,9 +90,10 @@ def main() -> None:
 
     plan = BackfillPlan.new(
         plan_version=digest,
-        tile_list_source=args.tile_list_source
-        or f"s3://{args.bucket}/{args.tile_list_key}",
-        year_months=year_months,
+        tile_list_source=(
+            args.tile_list_source or f"s3://{args.bucket}/{args.tile_list_key}"
+        ),
+        year_months=sorted(year_months, reverse=True),
         tile_count=len(tiles),
     )
     store.create(plan)
