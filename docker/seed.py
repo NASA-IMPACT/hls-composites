@@ -1,17 +1,17 @@
-"""Seed a local MinIO bucket with real HLS granules for one tile-month.
+"""Seed a local RustFS bucket with real HLS granules for one tile-month.
 
 Granules are discovered through NASA's CMR (via earthaccess) and each band
 asset, plus the granule's ECHO-10 metadata, is streamed over HTTPS with
-Earthdata Login credentials into a local MinIO bucket, under the same keys LP
-DAAC uses, so the CLI can then composite them offline against MinIO.
+Earthdata Login credentials into a local RustFS bucket, under the same keys LP
+DAAC uses, so the CLI can then composite them offline against RustFS.
 
 LP DAAC's cloud buckets deny `s3:ListBucket` outright and only serve GETs to
 callers in us-west-2, so the bottom-up bucket scan the CLI uses cannot be
 pointed at them; CMR is the only way to enumerate granules from outside.
 
 Everything is driven by environment variables (see docker-compose.yml /
-.env.example): TILE, YEARMONTH, LOCAL_BUCKET, MINIO_ENDPOINT, MINIO_ROOT_USER
-and MINIO_ROOT_PASSWORD. Earthdata Login credentials come from a mounted
+.env.example): TILE, YEARMONTH, LOCAL_BUCKET, RUSTFS_ENDPOINT, RUSTFS_ACCESS_KEY
+and RUSTFS_SECRET_KEY. Earthdata Login credentials come from a mounted
 ~/.netrc or the EARTHDATA_USERNAME / EARTHDATA_PASSWORD variables.
 """
 
@@ -55,7 +55,7 @@ def _require(name: str) -> str:
 def _ensure_bucket(
     client: "S3Client", bucket: str, attempts: int = 30, delay: float = 2.0
 ) -> None:
-    """Create the bucket, waiting for MinIO to accept connections."""
+    """Create the bucket, waiting for RustFS to accept connections."""
     for attempt in range(attempts):
         try:
             client.create_bucket(Bucket=bucket)
@@ -164,19 +164,19 @@ def main() -> None:
     tile = _require("TILE")
     year_month = _require("YEARMONTH")
     local_bucket = _require("LOCAL_BUCKET")
-    minio_endpoint = _require("MINIO_ENDPOINT")
-    minio_key = _require("MINIO_ROOT_USER")
-    minio_secret = _require("MINIO_ROOT_PASSWORD")
+    endpoint = _require("RUSTFS_ENDPOINT")
+    access_key = _require("RUSTFS_ACCESS_KEY")
+    secret_key = _require("RUSTFS_SECRET_KEY")
 
     _login()
     session = earthaccess.get_requests_https_session()
 
-    # Destination: local MinIO, addressed path-style with explicit credentials.
+    # Destination: local RustFS, addressed path-style with explicit credentials.
     dest = boto3.client(
         "s3",
-        endpoint_url=minio_endpoint,
-        aws_access_key_id=minio_key,
-        aws_secret_access_key=minio_secret,
+        endpoint_url=endpoint,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
         region_name="us-east-1",
         config=Config(s3={"addressing_style": "path"}),
     )
