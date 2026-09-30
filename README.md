@@ -93,16 +93,16 @@ While you _could_ run the CLI locally on your host machine, the pipeline reads t
 directly using an AWS IAM role that the LP DAAC have blessed for direct bucket access. To help mitigate this trouble, we
 provide a Docker Compose based local developer setup that fakes the LP DAAC protected bucket.
 
-This compose stack runs the CLI against a MinIO fake-S3 seeded with real granules. Seeding pulls from LP DAAC and needs
+This compose stack runs the CLI against a RustFS fake-S3 seeded with real granules. Seeding pulls from LP DAAC and needs
 Earthdata Login credentials, either in `~/.netrc` or as `EARTHDATA_USERNAME` / `EARTHDATA_PASSWORD`.
 
 ```bash
-docker compose up -d minio
+docker compose up -d rustfs
 docker compose run --rm seed
 docker compose run --rm composite      # MODE=bands for the reflectance bands
 ```
 
-Outputs land in `./out`; the MinIO console is at <http://localhost:9001>.
+Outputs land in `./out`; the RustFS console is at <http://localhost:9001> (login `rustfsadmin` / `rustfsadmin`).
 
 ## Layout
 

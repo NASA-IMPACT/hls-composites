@@ -1,8 +1,8 @@
-# Local dev stack: a MinIO fake-S3, a one-shot seeder that mirrors real HLS
+# Local dev stack: a RustFS fake-S3, a one-shot seeder that mirrors real HLS
 # granules into it, and the CLI running against it. Inputs come from the
 # environment; TILE/YEARMONTH default below.
 #
-#   docker compose up -d minio
+#   docker compose up -d rustfs
 #   docker compose run --rm seed
 #   docker compose run --rm composite
 #
@@ -19,7 +19,7 @@
 # each in turn leaves their GeoTIFFs side by side in one folder.
 #
 # Override any knob inline (TILE=... YEARMONTH=...) or via a local .env file.
-# Outputs land in ./out; the MinIO console is at http://localhost:9001.
+# Outputs land in ./out; the RustFS console is at http://localhost:9001.
 
 # seed and composite are the same image, built once and tagged here so both
 # services share it rather than each triggering its own build.
@@ -32,28 +32,31 @@ x-app: &app
 x-mounts:
   # Live source, picked up without a rebuild (project installed editable).
   src: &mount-src ./src:/app/src:ro
-  # Holds the MinIO client config AWS_CONFIG_FILE points at.
+  # Holds the S3 client config AWS_CONFIG_FILE points at.
   docker: &mount-docker ./docker:/app/docker:ro
 
 services:
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
+  rustfs:
+    image: rustfs/rustfs:latest
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-rustfsadmin}
     ports:
       - "9000:9000"
       - "9001:9001"
     volumes:
-      - minio-data:/data
+      - rustfs-data:/data
 
-  # One-shot: copy real granules from LP DAAC into MinIO, over HTTPS.
+  # One-shot: copy real granules from LP DAAC into RustFS, over HTTPS.
   seed:
     <<: *app
     profiles: ["tools"]
     depends_on:
-      - minio
+      - rustfs
     entrypoint: ["python", "docker/seed.py"]
     volumes:
       # Earthdata Login credentials for the LP DAAC reads, read-only. Mounted
@@ -68,19 +71,19 @@ services:
       TILE: ${TILE:-14TPN}
       YEARMONTH: ${YEARMONTH:-2015-07}
       LOCAL_BUCKET: ${LOCAL_BUCKET:-hls}
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      RUSTFS_ENDPOINT: http://rustfs:9000
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-rustfsadmin}
       # Optional Earthdata Login override, taking precedence over the .netrc.
       EARTHDATA_USERNAME: ${EARTHDATA_USERNAME:-}
       EARTHDATA_PASSWORD: ${EARTHDATA_PASSWORD:-}
 
-  # One-shot: run the CLI against MinIO to build the composite.
+  # One-shot: run the CLI against RustFS to build the composite.
   composite:
     <<: *app
     profiles: ["tools"]
     depends_on:
-      - minio
+      - rustfs
     command:
       - "--tile-id"
       - "${TILE:-14TPN}"
@@ -97,18 +100,18 @@ services:
       - *mount-src
       - *mount-docker
     environment:
-      # boto3 -> MinIO (discovery). Path-style addressing via the mounted config.
-      AWS_ENDPOINT_URL_S3: http://minio:9000
+      # boto3 -> RustFS (discovery). Path-style addressing via the mounted config.
+      AWS_ENDPOINT_URL_S3: http://rustfs:9000
       AWS_CONFIG_FILE: /app/docker/aws-config
-      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
-      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      AWS_ACCESS_KEY_ID: ${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      AWS_SECRET_ACCESS_KEY: ${RUSTFS_SECRET_KEY:-rustfsadmin}
       AWS_DEFAULT_REGION: us-east-1
-      # GDAL / rasterio -> MinIO (band reads over /vsis3/).
-      AWS_S3_ENDPOINT: minio:9000
+      # GDAL / rasterio -> RustFS (band reads over /vsis3/).
+      AWS_S3_ENDPOINT: rustfs:9000
       AWS_HTTPS: "NO"
       AWS_VIRTUAL_HOSTING: "FALSE"
       AWS_EC2_METADATA_DISABLED: "true"
       GDAL_DISABLE_READDIR_ON_OPEN: "EMPTY_DIR"
 
 volumes:
-  minio-data:
+  rustfs-data:
