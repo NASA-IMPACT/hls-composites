@@ -15,11 +15,12 @@ from hls_manifest.hls_manifest import build_manifest
 COLLECTION = "HLSM30"
 """Collection the submission names."""
 
-MANIFEST_SUFFIX = ".cnm.json"
-"""Suffix chosen so the manifest is not selected into its own file list.
+MANIFEST_SUFFIX = ".json"
+"""Suffix the output bucket's notification matches on (`*v2.0.json`).
 
-`hls_manifest` picks up `.tif`, `.jpg`, `.png`, `.xml`, and `_stac.json`; a file cannot
-checksum itself.
+It must also keep the manifest out of its own file list: `hls_manifest` picks
+up `.tif`, `.jpg`, `.png`, `.xml`, and `_stac.json`, and a file cannot checksum
+itself.
 """
 
 

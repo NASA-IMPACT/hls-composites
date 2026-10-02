@@ -25,7 +25,7 @@ A granule directory is named for the tile and the day-of-year bounds of the mont
 | `{granule_id}.{INDEX}.png`     | Pseudocolor browse image per index, MODIS MYD13A3 styling            |
 | `{granule_id}.cmr.xml`         | ECHO-10 granule metadata for CMR                                     |
 | `{granule_id}_stac.json`       | STAC item                                                            |
-| `{granule_id}.cnm.json`        | CNM submission message (S3 deliveries only)                          |
+| `{granule_id}.json`            | CNM submission message (S3 deliveries only)                          |
 
 All imagery data (indexes, standard deviations, & QA bands) are Cloud Optimized GeoTIFFs (COGs) with overviews.
 
