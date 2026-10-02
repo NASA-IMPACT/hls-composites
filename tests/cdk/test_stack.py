@@ -28,7 +28,8 @@ def build_settings(**overrides) -> StackSettings:
         ),
         "VPC_ID": "vpc-12345",
         "INPUT_BUCKET_NAME": "hls-input-bucket",
-        "OUTPUT_BUCKET_NAME": "hls-output-bucket",
+        "BACKFILL_OUTPUT_BUCKET_NAME": "hls-output-historical",
+        "FORWARD_OUTPUT_BUCKET_NAME": "hls-output-forward",
         "LPDAAC_READER_ROLE_ARN": LPDAAC_ROLE_ARN,
         "PROCESSING_CONTAINER_ECR_URI": ECR_URI,
         "PROCESSING_LOG_GROUP_NAME": "hls-composites-processing-dev",
@@ -86,6 +87,19 @@ def monitor_environment(template: assertions.Template) -> dict:
         if "job_monitor_handler" in function["Properties"].get("Handler", "")
     ]
     return monitor["Environment"]["Variables"]
+
+
+def feeder_environment(template: assertions.Template, plan_key: str) -> dict:
+    (feeder,) = [
+        function["Properties"]["Environment"]["Variables"]
+        for function in resources_of(template, "AWS::Lambda::Function")
+        if function["Properties"]
+        .get("Environment", {})
+        .get("Variables", {})
+        .get("BACKFILL_PLAN_KEY")
+        == plan_key
+    ]
+    return feeder
 
 
 @pytest.fixture(scope="module")
@@ -166,3 +180,34 @@ def test_job_monitor_keys_are_written_where_they_are_inventoried(template):
         if rule["Properties"].get("EventPattern", {}).get("source") == ["aws.s3"]
     ]
     assert rollup_rule["detail"]["object"]["key"] == [{"prefix": "logging/records/"}]
+
+
+@pytest.mark.parametrize(
+    ("plan_key", "bucket"),
+    [
+        ("plans/backfill.json", "hls-output-historical"),
+        ("plans/forward.json", "hls-output-forward"),
+    ],
+)
+def test_each_feeder_targets_its_own_output_bucket(template, plan_key, bucket):
+    assert feeder_environment(template, plan_key)["OUTPUT_BUCKET_NAME"] == bucket
+
+
+def test_job_definition_leaves_the_output_bucket_to_the_submitter(template):
+    """A job submitted without a bucket should fail, not land in the wrong one."""
+    (job_def,) = resources_of(template, "AWS::Batch::JobDefinition")
+    environment = job_def["Properties"]["ContainerProperties"]["Environment"]
+    assert "OUTPUT_BUCKET" not in {variable["Name"] for variable in environment}
+
+
+def test_job_role_can_write_both_output_buckets(template):
+    writes = {
+        render(resource)
+        for policy in resources_of(template, "AWS::IAM::Policy")
+        if "ProcessingJobRole" in json.dumps(policy["Properties"]["Roles"])
+        for statement in policy["Properties"]["PolicyDocument"]["Statement"]
+        if "s3:PutObject" in statement["Action"]
+        for resource in statement["Resource"]
+    }
+    for bucket in ("hls-output-historical", "hls-output-forward"):
+        assert any(f":s3:::{bucket}/*" in resource for resource in writes)

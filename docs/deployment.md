@@ -40,12 +40,13 @@ aws batch submit-job \
   --job-name composite-14TPN-2020-07 \
   --job-queue hls-composites-dev-job-queue \
   --job-definition <JobDefinitionArn from the stack outputs> \
-  --container-overrides 'command=["--tile-id","14TPN","--year-month","2020-07"]'
+  --container-overrides '{"command":["--tile-id","14TPN","--year-month","2020-07"],"environment":[{"name":"OUTPUT_BUCKET","value":"hls-dev-global-v2-historical"}]}'
 ```
 
-The job definition already sets `OUTPUT_BUCKET` and `OUTPUT_PREFIX`, so the composite is uploaded to S3. You _could_
-pass your own `--output-bucket` to upload elsewhere, BUT the IAM role would need to be manually updated to include
-permissions to write to that bucket.
+The job definition sets `OUTPUT_PREFIX` but not `OUTPUT_BUCKET`: historical and forward composites go to different
+buckets, so every submission names its own. The backfill feeder uses `BACKFILL_OUTPUT_BUCKET_NAME` and the forward
+feeder `FORWARD_OUTPUT_BUCKET_NAME`; a job submitted without one fails rather than writing to the wrong bucket. The job
+role can write to both. Any other bucket needs its IAM permissions added by hand.
 
 ## Configuration
 
@@ -59,7 +60,8 @@ Set these as **variables** on the GitHub environments `dev` and `prod`:
 - `AWS_ROLE_TO_ASSUME_ARN` -- the deploy role assumed via OIDC
 - `STACK_NAME`, `STAGE`
 - `MCP_ACCOUNT_ID`, `MCP_ACCOUNT_REGION`, `MCP_IAM_PERMISSION_BOUNDARY_ARN`, `VPC_ID`
-- `INPUT_BUCKET_NAME`, `OUTPUT_BUCKET_NAME`, `OUTPUT_PREFIX`, `PROCESSING_BUCKET_NAME_PREFIX`
+- `INPUT_BUCKET_NAME`, `BACKFILL_OUTPUT_BUCKET_NAME`, `FORWARD_OUTPUT_BUCKET_NAME`, `OUTPUT_PREFIX`,
+  `PROCESSING_BUCKET_NAME_PREFIX`
 - `ATHENA_DATABASE_NAME`, `ATHENA_INVENTORY_START_DATETIME`
 - `PROCESSING_CONTAINER_ECR_URI`, `PROCESSING_LOG_GROUP_NAME`
 - optionally `LPDAAC_READER_ROLE_ARN` and any of the tuning settings
@@ -98,7 +100,6 @@ The job definition sets:
 | Variable                 | Meaning                                                                                               |
 | ------------------------ | ----------------------------------------------------------------------------------------------------- |
 | `HLS_BUCKET`             | Input bucket the CLI scans for granules. Already read by `hls_composites`.                            |
-| `OUTPUT_BUCKET`          | Destination bucket.                                                                                   |
 | `LPDAAC_READER_ROLE_ARN` | Role to assume for LP DAAC reads.                                                                     |
 | `PYTHONUNBUFFERED`       | Keeps logs flowing to CloudWatch.                                                                     |
 | `DASK_NUM_WORKERS`       | Dask threads per job, from `PROCESSING_JOB_DASK_NUM_WORKERS`. Omitted when unset (one per host core). |

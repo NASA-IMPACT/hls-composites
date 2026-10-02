@@ -51,6 +51,12 @@ class TestManifest:
 
         assert path.name == f"{GRANULE_ID}{MANIFEST_SUFFIX}"
 
+    def test_matches_the_bucket_notification_pattern(self, written):
+        """The DAAC's ingest is triggered on keys ending `v2.0.json`."""
+        path, _ = written
+
+        assert path.name.endswith("v2.0.json")
+
     def test_names_the_collection_and_granule(self, written):
         _, manifest = written
 

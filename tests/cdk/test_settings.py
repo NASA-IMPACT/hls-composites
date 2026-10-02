@@ -12,7 +12,8 @@ REQUIRED = {
     ),
     "VPC_ID": "vpc-12345",
     "INPUT_BUCKET_NAME": "hls-input-bucket",
-    "OUTPUT_BUCKET_NAME": "hls-output-bucket",
+    "BACKFILL_OUTPUT_BUCKET_NAME": "hls-output-historical",
+    "FORWARD_OUTPUT_BUCKET_NAME": "hls-output-forward",
     "PROCESSING_CONTAINER_ECR_URI": (
         "123456789012.dkr.ecr.us-west-2.amazonaws.com/hls-composites:v0.1.0"
     ),
@@ -51,8 +52,11 @@ def test_instance_classes_may_be_emptied_to_get_optimal(monkeypatch):
     assert settings.BATCH_INSTANCE_CLASSES == []
 
 
-def test_missing_required_setting_is_an_error(monkeypatch):
-    incomplete = {k: v for k, v in REQUIRED.items() if k != "OUTPUT_BUCKET_NAME"}
+@pytest.mark.parametrize(
+    "missing", ["BACKFILL_OUTPUT_BUCKET_NAME", "FORWARD_OUTPUT_BUCKET_NAME"]
+)
+def test_missing_required_setting_is_an_error(monkeypatch, missing):
+    incomplete = {k: v for k, v in REQUIRED.items() if k != missing}
 
-    with pytest.raises(ValidationError, match="OUTPUT_BUCKET_NAME"):
+    with pytest.raises(ValidationError, match=missing):
         build(incomplete, monkeypatch)

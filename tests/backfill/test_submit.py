@@ -9,6 +9,7 @@ from hls_composites.models import YearMonth
 
 QUEUE = "test-queue"
 JOB_DEF = "test-jd"
+OUTPUT_BUCKET = "hls-output-test"
 JUNE_2016 = YearMonth(2016, 6)
 
 
@@ -98,23 +99,29 @@ def batch_env():
 
 
 def test_below_threshold_when_queue_is_empty():
-    submitter = BackfillSubmitter(FakeBatchClient(per_status=0), QUEUE, JOB_DEF)
+    submitter = BackfillSubmitter(
+        FakeBatchClient(per_status=0), QUEUE, JOB_DEF, OUTPUT_BUCKET
+    )
     assert submitter.active_jobs_below_threshold(10)
 
 
 def test_not_below_threshold_when_queue_is_full():
-    submitter = BackfillSubmitter(FakeBatchClient(per_status=100), QUEUE, JOB_DEF)
+    submitter = BackfillSubmitter(
+        FakeBatchClient(per_status=100), QUEUE, JOB_DEF, OUTPUT_BUCKET
+    )
     assert not submitter.active_jobs_below_threshold(10)
 
 
 def test_threshold_counts_across_all_statuses():
-    submitter = BackfillSubmitter(FakeBatchClient(per_status=3), QUEUE, JOB_DEF)
+    submitter = BackfillSubmitter(
+        FakeBatchClient(per_status=3), QUEUE, JOB_DEF, OUTPUT_BUCKET
+    )
     assert not submitter.active_jobs_below_threshold(15)
     assert submitter.active_jobs_below_threshold(16)
 
 
 def test_submit_unit_sets_the_monitoring_parameters(batch_env):
-    submitter = BackfillSubmitter(batch_env, QUEUE, JOB_DEF)
+    submitter = BackfillSubmitter(batch_env, QUEUE, JOB_DEF, OUTPUT_BUCKET)
     job_id = submitter.submit_unit("14TPN", JUNE_2016)
 
     parameters = batch_env.describe_jobs(jobs=[job_id])["jobs"][0]["parameters"]
@@ -126,7 +133,7 @@ def test_submit_unit_sets_the_monitoring_parameters(batch_env):
 
 def test_submit_unit_partition_fields_match_the_athena_key_path(batch_env):
     """The Athena tables project job_type then year_month; only year_month is a field."""
-    submitter = BackfillSubmitter(batch_env, QUEUE, JOB_DEF)
+    submitter = BackfillSubmitter(batch_env, QUEUE, JOB_DEF, OUTPUT_BUCKET)
     job_id = submitter.submit_unit("14TPN", JUNE_2016)
 
     parameters = batch_env.describe_jobs(jobs=[job_id])["jobs"][0]["parameters"]
@@ -137,7 +144,7 @@ def test_submit_unit_partition_fields_match_the_athena_key_path(batch_env):
 
 def test_submit_unit_passes_the_cli_arguments():
     client = FakeBatchClient()
-    submitter = BackfillSubmitter(client, QUEUE, JOB_DEF)
+    submitter = BackfillSubmitter(client, QUEUE, JOB_DEF, OUTPUT_BUCKET)
     submitter.submit_unit("14TPN", JUNE_2016)
 
     command = client.submitted[0]["containerOverrides"]["command"]
@@ -146,9 +153,18 @@ def test_submit_unit_passes_the_cli_arguments():
     assert client.submitted[0]["jobDefinition"] == JOB_DEF
 
 
+def test_submit_unit_overrides_the_output_bucket():
+    client = FakeBatchClient()
+    submitter = BackfillSubmitter(client, QUEUE, JOB_DEF, OUTPUT_BUCKET)
+    submitter.submit_unit("14TPN", JUNE_2016)
+
+    environment = client.submitted[0]["containerOverrides"]["environment"]
+    assert environment == [{"name": "OUTPUT_BUCKET", "value": OUTPUT_BUCKET}]
+
+
 def test_submit_units_returns_the_number_submitted():
     client = FakeBatchClient()
-    submitter = BackfillSubmitter(client, QUEUE, JOB_DEF)
+    submitter = BackfillSubmitter(client, QUEUE, JOB_DEF, OUTPUT_BUCKET)
     units = [("14TPN", JUNE_2016), ("14TPM", JUNE_2016), ("14TPL", JUNE_2016)]
     assert submitter.submit_units(units) == 3
     assert len(client.submitted) == 3
@@ -156,7 +172,7 @@ def test_submit_units_returns_the_number_submitted():
 
 def test_submit_units_stops_at_the_first_failure():
     client = FakeBatchClient(fail_on={"14TPM"})
-    submitter = BackfillSubmitter(client, QUEUE, JOB_DEF)
+    submitter = BackfillSubmitter(client, QUEUE, JOB_DEF, OUTPUT_BUCKET)
     units = [("14TPN", JUNE_2016), ("14TPM", JUNE_2016), ("14TPL", JUNE_2016)]
 
     assert submitter.submit_units(units) == 1
@@ -164,5 +180,5 @@ def test_submit_units_stops_at_the_first_failure():
 
 
 def test_submit_units_handles_an_empty_batch():
-    submitter = BackfillSubmitter(FakeBatchClient(), QUEUE, JOB_DEF)
+    submitter = BackfillSubmitter(FakeBatchClient(), QUEUE, JOB_DEF, OUTPUT_BUCKET)
     assert submitter.submit_units([]) == 0

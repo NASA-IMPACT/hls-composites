@@ -36,9 +36,11 @@ class StackSettings(BaseSettings):
     # ----- Buckets
     # Bucket of HLS granules the composites are built from
     INPUT_BUCKET_NAME: str
-    # Bucket the monthly composites are written to
-    OUTPUT_BUCKET_NAME: str
-    # Key prefix within that bucket, e.g. "M30/data". Empty writes at the root.
+    # Buckets the monthly composites are written to, one per feeder. The job
+    # definition sets neither; each feeder names its bucket at submit time.
+    BACKFILL_OUTPUT_BUCKET_NAME: str
+    FORWARD_OUTPUT_BUCKET_NAME: str
+    # Key prefix within either bucket, e.g. "M30/data". Empty writes at the root.
     OUTPUT_PREFIX: str = "M30/data"
 
     # Bucket the job monitor writes records, state pointers, and output index

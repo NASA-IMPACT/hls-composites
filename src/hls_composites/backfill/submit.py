@@ -35,6 +35,7 @@ class BackfillSubmitter:
     client: Any
     job_queue: str
     job_definition: str
+    output_bucket: str
 
     def active_jobs_below_threshold(self, threshold: int) -> bool:
         """Whether fewer than `threshold` jobs are in a pre-terminal state.
@@ -72,6 +73,9 @@ class BackfillSubmitter:
                         tile_id,
                         "--year-month",
                         period,
+                    ],
+                    "environment": [
+                        {"name": "OUTPUT_BUCKET", "value": self.output_bucket},
                     ],
                 },
             },

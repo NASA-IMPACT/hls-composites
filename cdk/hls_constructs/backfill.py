@@ -40,6 +40,7 @@ class FeederFunction(Construct):
         job_queue: batch.IJobQueue,
         job_definition: batch.IJobDefinition,
         job_definition_arn: str,
+        output_bucket: s3.IBucket,
         plan_key: str,
         tile_list_key: str,
         max_active_jobs: int,
@@ -57,6 +58,9 @@ class FeederFunction(Construct):
         job_definition_arn:
             Revision-less job definition ARN. The SubmitJob grant covers it
             and any revision of it.
+        output_bucket:
+            Bucket every job this feeder submits writes its composite to.
+            Write access belongs to the job role, not to the feeder.
         max_active_jobs:
             Queue-depth ceiling. Both feeders share one queue and read the same
             depth, so ordering their ceilings is what keeps a saturated backfill
@@ -87,6 +91,7 @@ class FeederFunction(Construct):
                 "BACKFILL_MAX_ACTIVE_JOBS": str(max_active_jobs),
                 "BATCH_QUEUE_NAME": job_queue.job_queue_name,
                 "BATCH_JOB_DEFINITION_NAME": job_definition.job_definition_name,
+                "OUTPUT_BUCKET_NAME": output_bucket.bucket_name,
             },
             bundling=lambda_python.BundlingOptions(
                 asset_excludes=LAMBDA_EXCLUDE,
