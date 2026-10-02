@@ -211,3 +211,18 @@ def test_job_role_can_write_both_output_buckets(template):
     }
     for bucket in ("hls-output-historical", "hls-output-forward"):
         assert any(f":s3:::{bucket}/*" in resource for resource in writes)
+
+
+def test_athena_workgroup_is_named_per_stage(template):
+    """Workgroup names are account-wide, so dev and prod must not share one."""
+    prod = synth(
+        build_settings(
+            STAGE="prod",
+            STACK_NAME="hls-composites-prod",
+            PROCESSING_BUCKET_NAME_PREFIX="hls-composites-prod",
+        )
+    )
+    (dev_workgroup,) = resources_of(template, "AWS::Athena::WorkGroup")
+    (prod_workgroup,) = resources_of(prod, "AWS::Athena::WorkGroup")
+
+    assert dev_workgroup["Properties"]["Name"] != prod_workgroup["Properties"]["Name"]
