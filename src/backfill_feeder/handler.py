@@ -150,6 +150,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         client=batch_client(),
         job_queue=os.environ["BATCH_QUEUE_NAME"],
         job_definition=os.environ["BATCH_JOB_DEFINITION_NAME"],
+        output_bucket=os.environ["OUTPUT_BUCKET_NAME"],
     )
     result = backfill_feeder(
         store=store,

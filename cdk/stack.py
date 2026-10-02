@@ -48,10 +48,15 @@ class HlsCompositesStack(Stack):
             "InputBucket",
             bucket_name=settings.INPUT_BUCKET_NAME,
         )
-        self.output_bucket = s3.Bucket.from_bucket_name(
+        self.backfill_output_bucket = s3.Bucket.from_bucket_name(
             self,
-            "OutputBucket",
-            bucket_name=settings.OUTPUT_BUCKET_NAME,
+            "BackfillOutputBucket",
+            bucket_name=settings.BACKFILL_OUTPUT_BUCKET_NAME,
+        )
+        self.forward_output_bucket = s3.Bucket.from_bucket_name(
+            self,
+            "ForwardOutputBucket",
+            bucket_name=settings.FORWARD_OUTPUT_BUCKET_NAME,
         )
         # ----------------------------------------------------------------------
         # AWS Batch infrastructure
@@ -73,7 +78,6 @@ class HlsCompositesStack(Stack):
         environment = {
             "PYTHONUNBUFFERED": "TRUE",
             "HLS_BUCKET": settings.INPUT_BUCKET_NAME,
-            "OUTPUT_BUCKET": settings.OUTPUT_BUCKET_NAME,
         }
         if settings.OUTPUT_PREFIX:
             environment["OUTPUT_PREFIX"] = settings.OUTPUT_PREFIX
@@ -100,7 +104,8 @@ class HlsCompositesStack(Stack):
         )
 
         self.input_bucket.grant_read(self.processing_job.role)
-        self.output_bucket.grant_read_write(self.processing_job.role)
+        self.backfill_output_bucket.grant_read_write(self.processing_job.role)
+        self.forward_output_bucket.grant_read_write(self.processing_job.role)
 
         if settings.LPDAAC_READER_ROLE_ARN:
             self.processing_job.role.add_to_policy(
@@ -139,6 +144,7 @@ class HlsCompositesStack(Stack):
             job_queue=self.batch_infra.queue,
             job_definition=self.processing_job.job_def,
             job_definition_arn=self.processing_job.job_def_arn_without_revision,
+            output_bucket=self.backfill_output_bucket,
             tile_list_key=settings.BACKFILL_TILE_LIST_KEY,
             plan_key=settings.BACKFILL_PLAN_KEY,
             max_active_jobs=settings.BACKFILL_MAX_ACTIVE_JOBS,
@@ -147,7 +153,7 @@ class HlsCompositesStack(Stack):
             enabled=settings.SCHEDULE_BACKFILL,
         )
 
-        # Same tile list, its own plan and its own queue-depth ceiling.
+        # Its own plan, output bucket, and queue-depth ceiling.
         self.forward = FeederFunction(
             self,
             "Forward",
@@ -155,6 +161,7 @@ class HlsCompositesStack(Stack):
             job_queue=self.batch_infra.queue,
             job_definition=self.processing_job.job_def,
             job_definition_arn=self.processing_job.job_def_arn_without_revision,
+            output_bucket=self.forward_output_bucket,
             tile_list_key=settings.FORWARD_TILE_LIST_KEY,
             plan_key=settings.FORWARD_PLAN_KEY,
             max_active_jobs=settings.FORWARD_MAX_ACTIVE_JOBS,

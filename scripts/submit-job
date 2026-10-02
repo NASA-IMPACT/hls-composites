@@ -9,7 +9,8 @@ fields, so submissions have to go through `JobGroup` rather than a bare
 
     scripts/submit-job --tile-id 14TPN --year-month 2020-07 \
         --job-queue hls-composites-dev-job-queue \
-        --job-definition hls-composites-dev-processing
+        --job-definition hls-composites-dev-processing \
+        --output-bucket hls-dev-global-v2-historical
 """
 
 import argparse
@@ -26,6 +27,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--year-month", required=True, help="Composite month, YYYY-MM")
     parser.add_argument("--job-queue", required=True)
     parser.add_argument("--job-definition", required=True)
+    parser.add_argument(
+        "--output-bucket",
+        required=True,
+        help="Bucket to write the composite to; the job definition sets none",
+    )
     parser.add_argument("--region", default="us-west-2")
     return parser.parse_args()
 
@@ -56,6 +62,9 @@ def main() -> None:
                     args.tile_id,
                     "--year-month",
                     args.year_month,
+                ],
+                "environment": [
+                    {"name": "OUTPUT_BUCKET", "value": args.output_bucket},
                 ],
             },
         },
