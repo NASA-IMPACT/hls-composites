@@ -178,6 +178,7 @@ class JobMonitoring(Construct):
             key_prefix=self.processing_bucket.key_prefix,
             job_type_configs=self.job_type_configs,
             queues=self.queues,
+            tracked_statuses=["RUNNABLE", "SUCCEEDED", "FAILED"],
         )
         self.resubmit = JobResubmitFunction(
             self,
