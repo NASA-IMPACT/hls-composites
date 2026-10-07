@@ -32,7 +32,6 @@ records which constants still carry it.
 
 # Derived from the granule ID, which already encodes M30 and v2.0, and
 # follows the HLSL30/HLSS30 naming of the daily products.
-SHORT_NAME = "HLSM30"
 VERSION_ID = "2.0"
 
 # Not yet assigned.
