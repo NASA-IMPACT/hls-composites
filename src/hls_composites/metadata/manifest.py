@@ -12,7 +12,7 @@ from pathlib import Path
 
 from hls_manifest.hls_manifest import build_manifest
 
-COLLECTION = "HLSM30"
+COLLECTION = "HLSM30_VI"
 """Collection the submission names."""
 
 MANIFEST_SUFFIX = ".json"
