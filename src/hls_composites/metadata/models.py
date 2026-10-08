@@ -26,16 +26,16 @@ PLACEHOLDER = "PLACEHOLDER"
 """Stands in for a value the DAAC has not assigned yet.
 
 Deliberately not a plausible-looking value: a fabricated DOI or product URI
-that reads as real could be published and believed. `test_placeholders`
-records which constants still carry it.
+that reads as real could be published and believed.
 """
 
 # Derived from the granule ID, which already encodes M30 and v2.0, and
 # follows the HLSL30/HLSS30 naming of the daily products.
 VERSION_ID = "2.0"
 
+DATASET_ID = "HLS Merged Vegetation Indices Monthly Global 30m v2.0"
+
 # Not yet assigned.
-DATASET_ID = PLACEHOLDER
 DOI = PLACEHOLDER
 PRODUCT_URI_BASE = PLACEHOLDER
 

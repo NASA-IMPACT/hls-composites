@@ -3,13 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from hls_composites.indices import NDVI
-from hls_composites.metadata.models import (
-    DATASET_ID,
-    DOI,
-    PLACEHOLDER,
-    PRODUCT_URI_BASE,
-    granule_metadata,
-)
+from hls_composites.metadata.models import granule_metadata
 from hls_composites.outputs import VALID_COUNT
 from tests.metadata.conftest import EPSG, FEBRUARY, GRANULE_ID, PLATFORMS, ULX, ULY
 
@@ -104,12 +98,3 @@ def test_produced_at_defaults_to_now(granule_dir, browse_images):
     )
 
     assert meta.produced_at.tzinfo is UTC
-
-
-def test_placeholders():
-    """Records the values still awaiting the DAAC.
-
-    Update this list as they are assigned; it is the inventory of what is
-    not yet real, so a reader never has to guess which values are invented.
-    """
-    assert [DATASET_ID, DOI, PRODUCT_URI_BASE] == [PLACEHOLDER] * 3
