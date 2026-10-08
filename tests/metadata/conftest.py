@@ -20,6 +20,11 @@ ULY = 4600000.0
 PIXEL = 30.0
 NDVI_DESCRIPTION = "Normalized Difference Vegetation Index"
 PLATFORMS = [("LANDSAT-9", "OLI"), ("Sentinel-2C", "Sentinel-2 MSI")]
+# A footprint split at the antimeridian: counter-clockwise, open rings.
+SPLIT_FOOTPRINT = [
+    [(179.5, 59.5), (180.0, 59.5), (180.0, 60.4), (179.4, 60.4)],
+    [(-180.0, 59.5), (-178.6, 59.4), (-178.5, 60.3), (-180.0, 60.4)],
+]
 
 
 def _write(

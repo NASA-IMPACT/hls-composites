@@ -13,15 +13,16 @@ import mimetypes
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
 import rasterio
-from rasterio.warp import transform_bounds
 
 from hls_composites.composite import spatial_coverage
 from hls_composites.crs import crs_name
 from hls_composites.indices import NDVI
 from hls_composites.io import ADD_OFFSET
+from hls_composites.metadata.footprint import Ring, footprint, footprint_bbox
 from hls_composites.models import DateRange, Granule, composite_id
-from hls_composites.outputs import fill_attributes
+from hls_composites.outputs import VALID_COUNT, fill_attributes
 
 PLACEHOLDER = "PLACEHOLDER"
 """Stands in for a value the DAAC has not assigned yet.
@@ -57,10 +58,6 @@ CMR_STAC_BASE = "https://cmr.earthdata.nasa.gov/stac/LPCLOUD/collections"
 
 CMR_STAC_COLLECTIONS = {"L30": "HLSL30_2.0", "S30": "HLSS30_2.0"}
 """CMR-STAC collection ID per HLS product, as spelled in the live catalog."""
-
-# Densifying the edges before reprojecting keeps the lat/lon bounds tight:
-# a UTM rectangle's edges curve on the ellipsoid.
-_DENSIFY_POINTS = 21
 
 
 @dataclass(frozen=True)
@@ -137,11 +134,13 @@ class GranuleMetadata:
         Period composited over.
     produced_at : datetime.datetime
         When the composite was produced, in UTC.
-    boundary : list of tuple of float
-        Granule outline as ``(longitude, latitude)`` corners, counter-clockwise
-        as GeoJSON orders an exterior ring, and not closed.
+    footprint : list of list of tuple of float
+        Outline of where the granule has data, as ``(longitude, latitude)``
+        rings: counter-clockwise as GeoJSON orders an exterior ring, and not
+        closed. Two rings when it crosses the antimeridian, one otherwise.
     bbox : tuple of float
-        ``(west, south, east, north)`` in degrees.
+        ``(west, south, east, north)`` of the footprint in degrees; west
+        exceeds east when it crosses the antimeridian.
     proj_bbox : tuple of float
         ``(west, south, east, north)`` in the rasters' own projected CRS.
     epsg : int
@@ -180,7 +179,7 @@ class GranuleMetadata:
     tile_id: str
     date_range: DateRange
     produced_at: dt.datetime
-    boundary: list[tuple[float, float]]
+    footprint: list[Ring]
     bbox: tuple[float, float, float, float]
     proj_bbox: tuple[float, float, float, float]
     epsg: int
@@ -217,12 +216,6 @@ def browse_media_type(image: Path) -> str:
 def browse_description(image: Path) -> str:
     """Description the DAAC shows for a browse image."""
     return f"{browse_index(image)} browse image"
-
-
-def _spatial_coverage(valid_count_path: Path) -> float:
-    """Read back the written `ValidCount` and measure what it covers."""
-    with rasterio.open(valid_count_path) as src:
-        return spatial_coverage(src.read(1))
 
 
 def _asset_bands(assets: list[Path]) -> list[AssetBand]:
@@ -298,12 +291,18 @@ def granule_metadata(
         ulx, uly = src.transform.c, src.transform.f
         ncols, nrows = src.width, src.height
         left, bottom, right, top = src.bounds
-        west, south, east, north = transform_bounds(
-            src.crs, "EPSG:4326", *src.bounds, densify_pts=_DENSIFY_POINTS
-        )
+        crs, transform = src.crs, src.transform
 
-    valid_count = granule_dir / f"{granule_dir.name}.ValidCount.tif"
-    coverage = _spatial_coverage(valid_count) if valid_count.exists() else 0.0
+    valid_count_path = granule_dir / f"{granule_dir.name}.ValidCount.tif"
+    if valid_count_path.exists():
+        with rasterio.open(valid_count_path) as src:
+            valid_count = src.read(1)
+        coverage = spatial_coverage(valid_count)
+        valid = valid_count != VALID_COUNT.nodata
+    else:
+        coverage = 0.0
+        valid = np.zeros((nrows, ncols), dtype=bool)
+    outline = footprint(valid, transform, crs)
 
     index = NDVI()
     asset_bands = _asset_bands(assets)
@@ -312,8 +311,8 @@ def granule_metadata(
         tile_id=tile_id,
         date_range=date_range,
         produced_at=produced_at or dt.datetime.now(dt.UTC),
-        boundary=[(west, north), (west, south), (east, south), (east, north)],
-        bbox=(west, south, east, north),
+        footprint=outline,
+        bbox=footprint_bbox(outline),
         proj_bbox=(left, bottom, right, top),
         epsg=int(epsg) if epsg is not None else 0,
         crs_name=name,

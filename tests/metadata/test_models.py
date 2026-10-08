@@ -1,11 +1,21 @@
 from datetime import UTC, datetime
 
+import numpy as np
 import pytest
+from rasterio.warp import transform as transform_points
 
 from hls_composites.indices import NDVI
 from hls_composites.metadata.models import granule_metadata
 from hls_composites.outputs import VALID_COUNT
-from tests.metadata.conftest import EPSG, FEBRUARY, GRANULE_ID, PLATFORMS, ULX, ULY
+from tests.metadata.conftest import (
+    EPSG,
+    FEBRUARY,
+    GRANULE_ID,
+    PIXEL,
+    PLATFORMS,
+    ULX,
+    ULY,
+)
 
 PRODUCED_AT = datetime(2026, 9, 3, 12, 0, 0, tzinfo=UTC)
 
@@ -45,15 +55,25 @@ def test_spatial_coverage_is_the_percentage_of_valid_pixels(meta):
     assert meta.spatial_coverage == 75
 
 
-def test_boundary_is_lon_lat_and_encloses_the_grid(meta):
-    lons = [lon for lon, _ in meta.boundary]
-    lats = [lat for _, lat in meta.boundary]
+def test_footprint_outlines_only_the_valid_pixels(meta):
+    """The fixture's top row is fill, so the outline stops a pixel short of it."""
+    [ring] = meta.footprint
+    lons, lats = transform_points(
+        f"EPSG:{EPSG}",
+        "EPSG:4326",
+        [ULX, ULX + 4 * PIXEL, ULX + 4 * PIXEL, ULX],
+        [ULY - PIXEL, ULY - PIXEL, ULY - 4 * PIXEL, ULY - 4 * PIXEL],
+    )[:2]
 
-    assert len(meta.boundary) == 4
-    # Tile 14TPN sits in the northern hemisphere, west of Greenwich.
-    assert all(-180 <= lon <= 0 for lon in lons)
-    assert all(0 < lat < 90 for lat in lats)
-    assert meta.bbox == (min(lons), min(lats), max(lons), max(lats))
+    np.testing.assert_allclose(sorted(ring), sorted(zip(lons, lats, strict=True)))
+
+
+def test_bbox_is_the_extent_of_the_footprint(meta):
+    [ring] = meta.footprint
+    lons = [lon for lon, _ in ring]
+    lats = [lat for _, lat in ring]
+
+    assert meta.bbox == pytest.approx((min(lons), min(lats), max(lons), max(lats)))
 
 
 def test_encoding_constants_match_the_index_definitions(meta):

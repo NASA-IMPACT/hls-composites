@@ -3,6 +3,7 @@ from dataclasses import replace
 from itertools import pairwise
 from xml.etree import ElementTree
 
+import numpy as np
 import pytest
 from lxml import etree
 
@@ -14,7 +15,7 @@ from hls_composites.metadata.models import (
     InputGranule,
     granule_metadata,
 )
-from tests.metadata.conftest import FEBRUARY, GRANULE_ID, PLATFORMS
+from tests.metadata.conftest import FEBRUARY, GRANULE_ID, PLATFORMS, SPLIT_FOOTPRINT
 
 PRODUCED_AT = dt.datetime(2026, 9, 3, 12, 0, 0, tzinfo=dt.UTC)
 
@@ -36,6 +37,12 @@ def root(meta):
     return ElementTree.fromstring(to_echo10(meta))
 
 
+def signed_area(ring):
+    """Shoelace sum: positive for a counter-clockwise ring."""
+    closed = [*ring, ring[0]]
+    return sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in pairwise(closed))
+
+
 def attribute(root, name):
     """The values of one AdditionalAttribute, by name."""
     for element in root.iter("AdditionalAttribute"):
@@ -55,8 +62,9 @@ def attribute(root, name):
                 for day in (33, 49)
             ]
         },
+        {"footprint": SPLIT_FOOTPRINT},
     ],
-    ids=["default", "no-browse-images", "with-inputs"],
+    ids=["default", "no-browse-images", "with-inputs", "antimeridian"],
 )
 def test_document_conforms_to_the_granule_schema(meta, changes):
     validate_echo10(to_echo10(replace(meta, **changes)))
@@ -93,33 +101,45 @@ def test_temporal_range_spans_the_compositing_period(root):
     )
 
 
-def test_spatial_boundary_has_four_points(root):
-    points = root.findall(
-        "Spatial/HorizontalSpatialDomain/Geometry/GPolygon/Boundary/Point"
-    )
+def polygons(root):
+    """Each GPolygon's boundary as ``(longitude, latitude)`` points."""
+    return [
+        [
+            (
+                float(point.findtext("PointLongitude")),
+                float(point.findtext("PointLatitude")),
+            )
+            for point in polygon.iterfind("Boundary/Point")
+        ]
+        for polygon in root.iterfind(
+            "Spatial/HorizontalSpatialDomain/Geometry/GPolygon"
+        )
+    ]
 
-    assert len(points) == 4
-    for point in points:
-        assert -180 <= float(point.findtext("PointLongitude")) <= 180
-        assert -90 <= float(point.findtext("PointLatitude")) <= 90
+
+def test_spatial_boundary_is_the_footprint(meta, root):
+    [boundary] = polygons(root)
+
+    assert len(boundary) == 4
+    np.testing.assert_allclose(sorted(boundary), sorted(meta.footprint[0]), atol=1e-8)
 
 
 def test_spatial_boundary_is_clockwise(root):
     """CMR rejects an ECHO-10 boundary listed counter-clockwise."""
-    points = [
-        (
-            float(point.findtext("PointLongitude")),
-            float(point.findtext("PointLatitude")),
-        )
-        for point in root.iterfind(
-            "Spatial/HorizontalSpatialDomain/Geometry/GPolygon/Boundary/Point"
-        )
-    ]
-    ring = [*points, points[0]]
-    # Shoelace sum: negative for a clockwise ring.
-    area = sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in pairwise(ring))
+    [boundary] = polygons(root)
 
-    assert area < 0
+    assert signed_area(boundary) < 0
+
+
+def test_a_split_footprint_is_one_polygon_per_side(meta):
+    root = ElementTree.fromstring(to_echo10(replace(meta, footprint=SPLIT_FOOTPRINT)))
+
+    boundaries = polygons(root)
+
+    assert [sorted(ring) for ring in boundaries] == [
+        sorted(ring) for ring in SPLIT_FOOTPRINT
+    ]
+    assert all(signed_area(ring) < 0 for ring in boundaries)
 
 
 def test_add_offset_is_an_integer(root):

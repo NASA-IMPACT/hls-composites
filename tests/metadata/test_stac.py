@@ -18,6 +18,7 @@ from tests.metadata.conftest import (
     NDVI_DESCRIPTION,
     PIXEL,
     PLATFORMS,
+    SPLIT_FOOTPRINT,
     ULX,
     ULY,
 )
@@ -96,7 +97,7 @@ def test_asset_hrefs_are_the_file_names(item):
     assert item["assets"]["NDVI"]["href"] == f"{GRANULE_ID}.NDVI.tif"
 
 
-def test_geometry_matches_the_boundary(item):
+def test_geometry_is_the_footprint_closed(item):
     ring = item["geometry"]["coordinates"][0]
 
     assert item["geometry"]["type"] == "Polygon"
@@ -112,6 +113,19 @@ def test_geometry_is_counter_clockwise(item):
     area = sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in pairwise(ring))
 
     assert area > 0
+
+
+def test_a_split_footprint_is_a_multipolygon(granule_dir, browse_images):
+    meta = granule_metadata(
+        "14TPN", FEBRUARY, granule_dir, browse_images, platforms=PLATFORMS
+    )
+
+    item = to_stac_item(replace(meta, footprint=SPLIT_FOOTPRINT))
+
+    assert item["geometry"]["type"] == "MultiPolygon"
+    assert item["geometry"]["coordinates"] == [
+        [[list(point) for point in [*ring, ring[0]]]] for ring in SPLIT_FOOTPRINT
+    ]
 
 
 def test_each_data_asset_declares_its_band(item):

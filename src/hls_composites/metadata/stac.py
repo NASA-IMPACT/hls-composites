@@ -90,13 +90,19 @@ def to_stac_item(meta: GranuleMetadata) -> dict[str, Any]:
     dict
         The item as a dictionary, ready to serialize as JSON.
     """
-    ring = [*meta.boundary, meta.boundary[0]]
+    polygons = [
+        [[list(point) for point in [*ring, ring[0]]]] for ring in meta.footprint
+    ]
+    if len(polygons) == 1:
+        geometry = {"type": "Polygon", "coordinates": polygons[0]}
+    else:
+        geometry = {"type": "MultiPolygon", "coordinates": polygons}
     start = dt.datetime.combine(meta.date_range.start, dt.time.min, tzinfo=dt.UTC)
     end = dt.datetime.combine(meta.date_range.end, dt.time.max, tzinfo=dt.UTC)
 
     item = pystac.Item(
         id=meta.granule_id,
-        geometry={"type": "Polygon", "coordinates": [[list(point) for point in ring]]},
+        geometry=geometry,
         bbox=list(meta.bbox),
         datetime=None,
         start_datetime=start,
