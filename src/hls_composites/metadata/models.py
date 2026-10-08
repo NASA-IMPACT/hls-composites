@@ -24,22 +24,12 @@ from hls_composites.metadata.footprint import Ring, footprint, footprint_bbox
 from hls_composites.models import DateRange, Granule, composite_id
 from hls_composites.outputs import VALID_COUNT, fill_attributes
 
-PLACEHOLDER = "PLACEHOLDER"
-"""Stands in for a value the DAAC has not assigned yet.
-
-Deliberately not a plausible-looking value: a fabricated DOI or product URI
-that reads as real could be published and believed.
-"""
-
 # Derived from the granule ID, which already encodes M30 and v2.0, and
 # follows the HLSL30/HLSS30 naming of the daily products.
 VERSION_ID = "2.0"
 
 DATASET_ID = "HLS Merged Vegetation Indices Monthly Global 30m v2.0"
 DOI = "10.5067/HLS/HLSM30_VI.002"
-
-# Not yet assigned.
-PRODUCT_URI_BASE = PLACEHOLDER
 
 # Universal, and matching the daily products.
 DOI_AUTHORITY = "https://doi.org"

@@ -176,7 +176,6 @@ def test_required_additional_attributes_are_present(root):
         "VALIDCOUNT_FILLVALUE",
         "NCOLS",
         "NROWS",
-        "PRODUCT_URI",
         "IDENTIFIER_PRODUCT_DOI",
         "IDENTIFIER_PRODUCT_DOI_AUTHORITY",
         "COMPOSITING_ALGORITHM",

@@ -18,12 +18,9 @@ from hls_composites.metadata.models import (
     DAY_NIGHT_FLAG,
     DOI,
     DOI_AUTHORITY,
-    PRODUCT_URI_BASE,
     SPATIAL_RESOLUTION,
     VERSION_ID,
     GranuleMetadata,
-    browse_description,
-    browse_media_type,
 )
 
 _TIMESTAMP = "%Y-%m-%dT%H:%M:%S.%fZ"
@@ -49,7 +46,6 @@ def _additional_attributes(meta: GranuleMetadata) -> list[tuple[str, list[str]]]
     how the daily products carry their source scene IDs.
     """
     single_valued: list[tuple[str, str]] = [
-        ("PRODUCT_URI", f"{PRODUCT_URI_BASE}/{meta.granule_id}"),
         ("MGRS_TILE_ID", meta.tile_id),
         # Integer percent, as the daily products declare it.
         ("SPATIAL_COVERAGE", str(round(meta.spatial_coverage))),
@@ -146,19 +142,9 @@ def to_echo10(meta: GranuleMetadata) -> str:
     _sub(granule, "OnlineAccessURLs")
     _sub(granule, "OnlineResources")
     _sub(granule, "DataFormat", DATA_FORMAT)
-    # The schema requires at least one ProviderBrowseUrl when the container
-    # is present, so a granule without browse images omits it.
-    if meta.browse_images:
-        browse_urls = _sub(granule, "AssociatedBrowseImageUrls")
-        for image in meta.browse_images:
-            provider_url = _sub(browse_urls, "ProviderBrowseUrl")
-            _sub(
-                provider_url,
-                "URL",
-                f"{PRODUCT_URI_BASE}/{meta.granule_id}/{image.name}",
-            )
-            _sub(provider_url, "Description", browse_description(image))
-            _sub(provider_url, "MimeType", browse_media_type(image))
+    # Empty, as the daily products leave it: no browse URL is known when the
+    # granule is produced.
+    _sub(granule, "AssociatedBrowseImageUrls")
 
     ElementTree.indent(granule, space="  ")
     body = ElementTree.tostring(granule, encoding="unicode")
