@@ -5,7 +5,11 @@ requires: ECHO-10 uses sequences, so a reordered document is invalid.
 """
 
 import datetime as dt
+from functools import cache
+from importlib import resources
 from xml.etree import ElementTree
+
+from lxml import etree
 
 from hls_composites.metadata.models import (
     COMPOSITING_ALGORITHM,
@@ -158,6 +162,31 @@ def to_echo10(meta: GranuleMetadata) -> str:
     ElementTree.indent(granule, space="  ")
     body = ElementTree.tostring(granule, encoding="unicode")
     return f'<?xml version="1.0" encoding="UTF-8"?>\n{body}'
+
+
+@cache
+def _granule_schema() -> etree.XMLSchema:
+    # Granule.xsd includes MetadataCommon.xsd by relative path, so the schema
+    # must be parsed from a real file location rather than from a string.
+    schema_dir = resources.files("hls_composites.metadata") / "schema"
+    with resources.as_file(schema_dir / "Granule.xsd") as path:
+        return etree.XMLSchema(etree.parse(path))
+
+
+def validate_echo10(document: str) -> None:
+    """Check `document` against the ECHO-10 granule schema CMR ingests with.
+
+    Parameters
+    ----------
+    document : str
+        An ECHO-10 granule document, as `to_echo10` renders it.
+
+    Raises
+    ------
+    lxml.etree.DocumentInvalid
+        If the document does not conform, naming the first violation.
+    """
+    _granule_schema().assertValid(etree.fromstring(document.encode()))
 
 
 def parse_platforms(document: bytes) -> list[tuple[str, str]]:

@@ -4,12 +4,14 @@ from itertools import pairwise
 from xml.etree import ElementTree
 
 import pytest
+from lxml import etree
 
-from hls_composites.metadata.echo10 import parse_platforms, to_echo10
+from hls_composites.metadata.echo10 import parse_platforms, to_echo10, validate_echo10
 from hls_composites.metadata.models import (
     COMPOSITING_ALGORITHM,
     DATASET_ID,
     DOI,
+    InputGranule,
     granule_metadata,
 )
 from tests.metadata.conftest import FEBRUARY, GRANULE_ID, PLATFORMS
@@ -18,8 +20,8 @@ PRODUCED_AT = dt.datetime(2026, 9, 3, 12, 0, 0, tzinfo=dt.UTC)
 
 
 @pytest.fixture
-def root(granule_dir, browse_images):
-    meta = granule_metadata(
+def meta(granule_dir, browse_images):
+    return granule_metadata(
         "14TPN",
         FEBRUARY,
         granule_dir,
@@ -27,6 +29,10 @@ def root(granule_dir, browse_images):
         platforms=PLATFORMS,
         produced_at=PRODUCED_AT,
     )
+
+
+@pytest.fixture
+def root(meta):
     return ElementTree.fromstring(to_echo10(meta))
 
 
@@ -36,6 +42,31 @@ def attribute(root, name):
         if element.findtext("Name") == name:
             return [value.text for value in element.iter("Value")]
     raise AssertionError(f"no AdditionalAttribute named {name}")
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {},
+        {"browse_images": []},
+        {
+            "inputs": [
+                InputGranule(f"HLS.L30.T14TPN.2020{day:03d}T171803.v2.0", "href")
+                for day in (33, 49)
+            ]
+        },
+    ],
+    ids=["default", "no-browse-images", "with-inputs"],
+)
+def test_document_conforms_to_the_granule_schema(meta, changes):
+    validate_echo10(to_echo10(replace(meta, **changes)))
+
+
+def test_a_nonconforming_document_is_rejected(root):
+    root.remove(root.find("GranuleUR"))
+
+    with pytest.raises(etree.DocumentInvalid, match="GranuleUR"):
+        validate_echo10(ElementTree.tostring(root, encoding="unicode"))
 
 
 def test_document_is_a_granule(root):

@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from hls_composites.metadata.echo10 import to_echo10
+from hls_composites.metadata.echo10 import to_echo10, validate_echo10
 from hls_composites.metadata.models import granule_metadata
 from hls_composites.metadata.stac import to_stac_item
 from hls_composites.models import DateRange, Granule
@@ -44,6 +44,11 @@ def write_metadata(
     -------
     list of pathlib.Path
         The ECHO-10 document and the STAC item, in that order.
+
+    Raises
+    ------
+    lxml.etree.DocumentInvalid
+        If the ECHO-10 document fails schema validation; nothing is written.
     """
     meta = granule_metadata(
         tile_id,
@@ -54,8 +59,10 @@ def write_metadata(
         inputs=inputs,
     )
 
+    document = to_echo10(meta)
+    validate_echo10(document)
     xml_path = granule_dir / f"{meta.granule_id}{CMR_SUFFIX}"
-    xml_path.write_text(to_echo10(meta))
+    xml_path.write_text(document)
 
     json_path = granule_dir / f"{meta.granule_id}{STAC_SUFFIX}"
     json_path.write_text(json.dumps(to_stac_item(meta), indent=2))

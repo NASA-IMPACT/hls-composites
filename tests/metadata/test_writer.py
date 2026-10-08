@@ -1,6 +1,10 @@
 import json
 from xml.etree import ElementTree
 
+import pytest
+from lxml import etree
+
+from hls_composites.metadata import writer
 from hls_composites.metadata.writer import write_metadata
 from tests.metadata.conftest import FEBRUARY, GRANULE_ID, PLATFORMS
 
@@ -46,3 +50,12 @@ def test_metadata_files_are_not_described_as_assets(granule_dir, browse_images):
 
     data = {k for k, v in item["assets"].items() if v["roles"] == ["data"]}
     assert data == {"NDVI", "ValidCount"}
+
+
+def test_an_invalid_document_is_not_written(granule_dir, browse_images, monkeypatch):
+    monkeypatch.setattr(writer, "to_echo10", lambda meta: "<Granule />")
+
+    with pytest.raises(etree.DocumentInvalid):
+        write_metadata("14TPN", FEBRUARY, granule_dir, browse_images, PLATFORMS)
+
+    assert not list(granule_dir.glob("*.cmr.xml"))
