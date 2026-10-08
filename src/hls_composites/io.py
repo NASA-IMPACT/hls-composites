@@ -53,7 +53,7 @@ overviews the same way its inputs do. `predictor` is the fallback for a band
 that does not declare its own (see `BandSpec.predictor`).
 """
 
-ADD_OFFSET = 0.0
+ADD_OFFSET = 0
 """Additive offset of every encoded band. No index or reflectance band has one."""
 
 BLOCK_SIZE = 256

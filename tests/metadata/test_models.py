@@ -58,7 +58,8 @@ def test_boundary_is_lon_lat_and_encloses_the_grid(meta):
 
 def test_encoding_constants_match_the_index_definitions(meta):
     assert meta.scale_factor == 1e-4
-    assert meta.add_offset == 0.0
+    assert meta.add_offset == 0
+    assert isinstance(meta.add_offset, int)
 
 
 def test_each_written_fill_is_declared_under_its_own_attribute(meta):

@@ -79,7 +79,7 @@ def test_written_cog_is_self_describing(tmp_path):
 
     assert tags["long_name"] == NDVI_LONG_NAME
     assert tags["scale_factor"] == "0.0001"
-    assert tags["add_offset"] == "0.0"
+    assert tags["add_offset"] == "0"
     assert tags["_FillValue"] == "-19999"
     assert tags["NROWS"] == str(SIZE)
     assert tags["NCOLS"] == str(SIZE)

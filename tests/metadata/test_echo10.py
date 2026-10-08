@@ -91,6 +91,11 @@ def test_spatial_boundary_is_clockwise(root):
     assert area < 0
 
 
+def test_add_offset_is_an_integer(root):
+    """The collection declares ADD_OFFSET as INT, which rejects "0.0"."""
+    assert attribute(root, "ADD_OFFSET") == ["0"]
+
+
 def test_platforms_are_the_ones_given(root):
     """A composite can draw from several, unlike a daily granule."""
     platforms = [

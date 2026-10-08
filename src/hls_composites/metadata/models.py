@@ -19,6 +19,7 @@ from rasterio.warp import transform_bounds
 from hls_composites.composite import spatial_coverage
 from hls_composites.crs import crs_name
 from hls_composites.indices import NDVI
+from hls_composites.io import ADD_OFFSET
 from hls_composites.models import DateRange, Granule, composite_id
 from hls_composites.outputs import fill_attributes
 
@@ -155,8 +156,11 @@ class GranuleMetadata:
         Percentage of pixels carrying data, 0 to 100.
     platforms : list of tuple of str
         `(platform, instrument)` pairs that contributed observations.
-    scale_factor, add_offset : float
-        Encoding of the index rasters.
+    scale_factor : float
+        Scale of the index rasters.
+    add_offset : int
+        Offset of the index rasters. An integer because the collection
+        declares the ECHO-10 attribute as INT, which rejects "0.0".
     fill_values : dict of str to int
         Fill value of every written band, keyed by the ECHO-10 attribute
         naming it (see `outputs.fill_attributes`).
@@ -188,7 +192,7 @@ class GranuleMetadata:
     spatial_coverage: float
     platforms: list[tuple[str, str]]
     scale_factor: float
-    add_offset: float
+    add_offset: int
     fill_values: dict[str, int]
     assets: list[Path]
     asset_bands: list[AssetBand]
@@ -320,7 +324,7 @@ def granule_metadata(
         spatial_coverage=coverage,
         platforms=platforms,
         scale_factor=index.scale_factor,
-        add_offset=0.0,
+        add_offset=ADD_OFFSET,
         fill_values=fill_attributes({band.name: band.nodata for band in asset_bands}),
         assets=assets,
         asset_bands=asset_bands,
