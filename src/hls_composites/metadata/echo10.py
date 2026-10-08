@@ -115,7 +115,9 @@ def to_echo10(meta: GranuleMetadata) -> str:
     geometry = _sub(domain, "Geometry")
     polygon = _sub(geometry, "GPolygon")
     boundary = _sub(polygon, "Boundary")
-    for longitude, latitude in meta.boundary:
+    # ECHO-10 orders a boundary clockwise, the reverse of GeoJSON. See
+    # https://wiki.earthdata.nasa.gov/spaces/CMR/pages/82511881/Polygon+Support+in+CMR+Search+Ingest+Interfaces#PolygonSupportinCMRSearch%26IngestInterfaces-DataFormatSupport
+    for longitude, latitude in reversed(meta.boundary):
         point = _sub(boundary, "Point")
         _sub(point, "PointLongitude", f"{longitude:.8f}")
         _sub(point, "PointLatitude", f"{latitude:.8f}")

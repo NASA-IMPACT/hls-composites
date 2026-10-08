@@ -137,7 +137,8 @@ class GranuleMetadata:
     produced_at : datetime.datetime
         When the composite was produced, in UTC.
     boundary : list of tuple of float
-        Granule outline as ``(longitude, latitude)`` corners.
+        Granule outline as ``(longitude, latitude)`` corners, counter-clockwise
+        as GeoJSON orders an exterior ring, and not closed.
     bbox : tuple of float
         ``(west, south, east, north)`` in degrees.
     proj_bbox : tuple of float

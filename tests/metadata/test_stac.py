@@ -1,5 +1,6 @@
 import datetime as dt
 from dataclasses import replace
+from itertools import pairwise
 
 import pystac
 import pytest
@@ -102,6 +103,15 @@ def test_geometry_matches_the_boundary(item):
     # Five points: four corners, with the first repeated to close the ring.
     assert len(ring) == 5
     assert ring[0] == ring[-1]
+
+
+def test_geometry_is_counter_clockwise(item):
+    """RFC 7946 orders an exterior ring counter-clockwise."""
+    ring = item["geometry"]["coordinates"][0]
+    # Shoelace sum: positive for a counter-clockwise ring.
+    area = sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in pairwise(ring))
+
+    assert area > 0
 
 
 def test_each_data_asset_declares_its_band(item):

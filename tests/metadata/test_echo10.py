@@ -1,5 +1,6 @@
 import datetime as dt
 from dataclasses import replace
+from itertools import pairwise
 from xml.etree import ElementTree
 
 import pytest
@@ -70,6 +71,24 @@ def test_spatial_boundary_has_four_points(root):
     for point in points:
         assert -180 <= float(point.findtext("PointLongitude")) <= 180
         assert -90 <= float(point.findtext("PointLatitude")) <= 90
+
+
+def test_spatial_boundary_is_clockwise(root):
+    """CMR rejects an ECHO-10 boundary listed counter-clockwise."""
+    points = [
+        (
+            float(point.findtext("PointLongitude")),
+            float(point.findtext("PointLatitude")),
+        )
+        for point in root.iterfind(
+            "Spatial/HorizontalSpatialDomain/Geometry/GPolygon/Boundary/Point"
+        )
+    ]
+    ring = [*points, points[0]]
+    # Shoelace sum: negative for a clockwise ring.
+    area = sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in pairwise(ring))
+
+    assert area < 0
 
 
 def test_platforms_are_the_ones_given(root):
