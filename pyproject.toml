@@ -18,6 +18,9 @@ dependencies = [
     "rasterio>=1.5.1",
     "rioxarray>=0.17.0",
     "xarray>=2025.1.0",
+    "lxml>=6.1",
+    "antimeridian>=0.4.9",
+    "shapely>=2.2",
 ]
 
 [project.scripts]
@@ -35,6 +38,8 @@ dev = [
     "pytest-cov>=5.0.0",
     "ruff>=0.16.0",
     "types-rasterio>=1.5.1.20260907",
+    "types-lxml>=2026.2.16",
+    "types-shapely>=2.1.0.20260728",
 ]
 seed = [
     "earthaccess>=0.18.0",

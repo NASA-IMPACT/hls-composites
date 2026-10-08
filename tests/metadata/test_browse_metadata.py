@@ -19,15 +19,15 @@ def several_browse_images(granule_dir):
 
 
 @pytest.fixture
-def with_browse(granule_dir, several_browse_images):
+def with_browse(rasters, several_browse_images):
     return granule_metadata(
-        "14TPN", FEBRUARY, granule_dir, several_browse_images, platforms=PLATFORMS
+        "14TPN", FEBRUARY, rasters, several_browse_images, platforms=PLATFORMS
     )
 
 
 @pytest.fixture
-def without_browse(granule_dir):
-    return granule_metadata("14TPN", FEBRUARY, granule_dir, [], platforms=PLATFORMS)
+def without_browse(rasters):
+    return granule_metadata("14TPN", FEBRUARY, rasters, [], platforms=PLATFORMS)
 
 
 def test_description_names_the_index(several_browse_images):
@@ -35,25 +35,13 @@ def test_description_names_the_index(several_browse_images):
 
 
 class TestEcho10Browse:
-    def test_one_browse_url_per_image(self, with_browse):
+    def test_browse_urls_are_left_empty(self, with_browse):
+        """As the daily products leave them."""
         root = ElementTree.fromstring(to_echo10(with_browse))
 
-        urls = root.findall("AssociatedBrowseImageUrls/ProviderBrowseUrl")
-        assert [url.findtext("URL").rsplit("/", 1)[-1] for url in urls] == [
-            f"{GRANULE_ID}.EVI.png",
-            f"{GRANULE_ID}.NDVI.png",
-        ]
-        assert [url.findtext("Description") for url in urls] == [
-            "EVI browse image",
-            "NDVI browse image",
-        ]
-        assert [url.findtext("MimeType") for url in urls] == ["image/png"] * 2
-
-    def test_no_images_omits_the_container(self, without_browse):
-        """The schema requires at least one ProviderBrowseUrl inside it."""
-        root = ElementTree.fromstring(to_echo10(without_browse))
-
-        assert root.find("AssociatedBrowseImageUrls") is None
+        container = root.find("AssociatedBrowseImageUrls")
+        assert container is not None
+        assert list(container) == []
 
 
 class TestStacBrowse:
@@ -68,7 +56,7 @@ class TestStacBrowse:
         assert assets["NDVI_browse"]["href"] == f"{GRANULE_ID}.NDVI.png"
 
     def test_the_images_are_not_also_data_assets(self, with_browse):
-        """Data assets are globbed from *.tif, so each image appears once."""
+        """Data assets are the written GeoTIFFs, so each image appears once."""
         assets = to_stac_item(with_browse)["assets"]
 
         data = {key for key, value in assets.items() if value["roles"] == ["data"]}

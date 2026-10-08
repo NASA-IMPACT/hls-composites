@@ -1,5 +1,6 @@
 import datetime as dt
 from dataclasses import replace
+from itertools import pairwise
 
 import pystac
 import pytest
@@ -17,6 +18,7 @@ from tests.metadata.conftest import (
     NDVI_DESCRIPTION,
     PIXEL,
     PLATFORMS,
+    SPLIT_FOOTPRINT,
     ULX,
     ULY,
 )
@@ -25,11 +27,11 @@ PRODUCED_AT = dt.datetime(2026, 9, 3, 12, 0, 0, tzinfo=dt.UTC)
 
 
 @pytest.fixture
-def item(granule_dir, browse_images):
+def item(rasters, browse_images):
     meta = granule_metadata(
         "14TPN",
         FEBRUARY,
-        granule_dir,
+        rasters,
         browse_images,
         platforms=PLATFORMS,
         produced_at=PRODUCED_AT,
@@ -59,23 +61,9 @@ def test_projection_carries_shape_and_transform(item):
     assert len(item["properties"]["proj:transform"]) == 6
 
 
-def test_no_doi_is_claimed_while_it_is_a_placeholder(item):
-    """The scientific extension requires a real DOI pattern; do not fake one."""
-    assert "sci:doi" not in item["properties"]
-    assert SCIENTIFIC_SCHEMA_URI not in item["stac_extensions"]
-
-
-def test_the_doi_appears_once_assigned(granule_dir, browse_images, monkeypatch):
-    monkeypatch.setattr("hls_composites.metadata.stac.DOI", "10.5067/HLS/HLSM30.001")
-    meta = granule_metadata(
-        "14TPN", FEBRUARY, granule_dir, browse_images, platforms=PLATFORMS
-    )
-
-    assigned = to_stac_item(meta)
-
-    assert assigned["properties"]["sci:doi"] == "10.5067/HLS/HLSM30.001"
-    assert SCIENTIFIC_SCHEMA_URI in assigned["stac_extensions"]
-    pystac.Item.from_dict(assigned).validate()
+def test_item_carries_the_product_doi(item):
+    assert item["properties"]["sci:doi"] == "10.5067/HLS/HLSM30_VI.002"
+    assert SCIENTIFIC_SCHEMA_URI in item["stac_extensions"]
 
 
 def test_every_geotiff_becomes_a_cog_asset(item):
@@ -95,13 +83,35 @@ def test_asset_hrefs_are_the_file_names(item):
     assert item["assets"]["NDVI"]["href"] == f"{GRANULE_ID}.NDVI.tif"
 
 
-def test_geometry_matches_the_boundary(item):
+def test_geometry_is_the_footprint_closed(item):
     ring = item["geometry"]["coordinates"][0]
 
     assert item["geometry"]["type"] == "Polygon"
     # Five points: four corners, with the first repeated to close the ring.
     assert len(ring) == 5
     assert ring[0] == ring[-1]
+
+
+def test_geometry_is_counter_clockwise(item):
+    """RFC 7946 orders an exterior ring counter-clockwise."""
+    ring = item["geometry"]["coordinates"][0]
+    # Shoelace sum: positive for a counter-clockwise ring.
+    area = sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in pairwise(ring))
+
+    assert area > 0
+
+
+def test_a_split_footprint_is_a_multipolygon(rasters, browse_images):
+    meta = granule_metadata(
+        "14TPN", FEBRUARY, rasters, browse_images, platforms=PLATFORMS
+    )
+
+    item = to_stac_item(replace(meta, footprint=SPLIT_FOOTPRINT))
+
+    assert item["geometry"]["type"] == "MultiPolygon"
+    assert item["geometry"]["coordinates"] == [
+        [[list(point) for point in [*ring, ring[0]]]] for ring in SPLIT_FOOTPRINT
+    ]
 
 
 def test_each_data_asset_declares_its_band(item):
@@ -141,11 +151,11 @@ def test_item_names_the_platforms_that_contributed(item):
     assert "platform" not in item["properties"]
 
 
-def test_an_instrument_on_several_platforms_is_listed_once(granule_dir, browse_images):
+def test_an_instrument_on_several_platforms_is_listed_once(rasters, browse_images):
     meta = granule_metadata(
         "14TPN",
         FEBRUARY,
-        granule_dir,
+        rasters,
         browse_images,
         platforms=[("LANDSAT-8", "OLI"), ("LANDSAT-9", "OLI")],
     )
@@ -153,10 +163,10 @@ def test_an_instrument_on_several_platforms_is_listed_once(granule_dir, browse_i
     assert to_stac_item(meta)["properties"]["instruments"] == ["oli"]
 
 
-def test_an_instrument_with_no_stac_name_is_refused(granule_dir, browse_images):
+def test_an_instrument_with_no_stac_name_is_refused(rasters, browse_images):
     """A guessed spelling would not match the daily items it is filtered with."""
     meta = granule_metadata(
-        "14TPN", FEBRUARY, granule_dir, browse_images, platforms=PLATFORMS
+        "14TPN", FEBRUARY, rasters, browse_images, platforms=PLATFORMS
     )
     unknown = replace(meta, platforms=[("LANDSAT-10", "OLI-3")])
 

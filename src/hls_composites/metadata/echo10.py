@@ -5,7 +5,11 @@ requires: ECHO-10 uses sequences, so a reordered document is invalid.
 """
 
 import datetime as dt
+from functools import cache
+from importlib import resources
 from xml.etree import ElementTree
+
+from lxml import etree
 
 from hls_composites.metadata.models import (
     COMPOSITING_ALGORITHM,
@@ -14,12 +18,9 @@ from hls_composites.metadata.models import (
     DAY_NIGHT_FLAG,
     DOI,
     DOI_AUTHORITY,
-    PRODUCT_URI_BASE,
     SPATIAL_RESOLUTION,
     VERSION_ID,
     GranuleMetadata,
-    browse_description,
-    browse_media_type,
 )
 
 _TIMESTAMP = "%Y-%m-%dT%H:%M:%S.%fZ"
@@ -45,7 +46,6 @@ def _additional_attributes(meta: GranuleMetadata) -> list[tuple[str, list[str]]]
     how the daily products carry their source scene IDs.
     """
     single_valued: list[tuple[str, str]] = [
-        ("PRODUCT_URI", f"{PRODUCT_URI_BASE}/{meta.granule_id}"),
         ("MGRS_TILE_ID", meta.tile_id),
         # Integer percent, as the daily products declare it.
         ("SPATIAL_COVERAGE", str(round(meta.spatial_coverage))),
@@ -113,12 +113,15 @@ def to_echo10(meta: GranuleMetadata) -> str:
     spatial = _sub(granule, "Spatial")
     domain = _sub(spatial, "HorizontalSpatialDomain")
     geometry = _sub(domain, "Geometry")
-    polygon = _sub(geometry, "GPolygon")
-    boundary = _sub(polygon, "Boundary")
-    for longitude, latitude in meta.boundary:
-        point = _sub(boundary, "Point")
-        _sub(point, "PointLongitude", f"{longitude:.8f}")
-        _sub(point, "PointLatitude", f"{latitude:.8f}")
+    for ring in meta.footprint:
+        polygon = _sub(geometry, "GPolygon")
+        boundary = _sub(polygon, "Boundary")
+        # ECHO-10 orders a boundary clockwise, the reverse of GeoJSON. See
+        # https://wiki.earthdata.nasa.gov/spaces/CMR/pages/82511881/Polygon+Support+in+CMR+Search+Ingest+Interfaces#PolygonSupportinCMRSearch%26IngestInterfaces-DataFormatSupport
+        for longitude, latitude in reversed(ring):
+            point = _sub(boundary, "Point")
+            _sub(point, "PointLongitude", f"{longitude:.8f}")
+            _sub(point, "PointLatitude", f"{latitude:.8f}")
 
     platforms = _sub(granule, "Platforms")
     for platform_name, instrument_name in meta.platforms:
@@ -139,23 +142,38 @@ def to_echo10(meta: GranuleMetadata) -> str:
     _sub(granule, "OnlineAccessURLs")
     _sub(granule, "OnlineResources")
     _sub(granule, "DataFormat", DATA_FORMAT)
-    # The schema requires at least one ProviderBrowseUrl when the container
-    # is present, so a granule without browse images omits it.
-    if meta.browse_images:
-        browse_urls = _sub(granule, "AssociatedBrowseImageUrls")
-        for image in meta.browse_images:
-            provider_url = _sub(browse_urls, "ProviderBrowseUrl")
-            _sub(
-                provider_url,
-                "URL",
-                f"{PRODUCT_URI_BASE}/{meta.granule_id}/{image.name}",
-            )
-            _sub(provider_url, "Description", browse_description(image))
-            _sub(provider_url, "MimeType", browse_media_type(image))
+    # Empty, as the daily products leave it: no browse URL is known when the
+    # granule is produced.
+    _sub(granule, "AssociatedBrowseImageUrls")
 
     ElementTree.indent(granule, space="  ")
     body = ElementTree.tostring(granule, encoding="unicode")
     return f'<?xml version="1.0" encoding="UTF-8"?>\n{body}'
+
+
+@cache
+def _granule_schema() -> etree.XMLSchema:
+    # Granule.xsd includes MetadataCommon.xsd by relative path, so the schema
+    # must be parsed from a real file location rather than from a string.
+    schema_dir = resources.files("hls_composites.metadata") / "schema" / "echo" / "10.0"
+    with resources.as_file(schema_dir / "Granule.xsd") as path:
+        return etree.XMLSchema(etree.parse(path))
+
+
+def validate_echo10(document: str) -> None:
+    """Check `document` against the ECHO-10 granule schema CMR ingests with.
+
+    Parameters
+    ----------
+    document : str
+        An ECHO-10 granule document, as `to_echo10` renders it.
+
+    Raises
+    ------
+    lxml.etree.DocumentInvalid
+        If the document does not conform, naming the first violation.
+    """
+    _granule_schema().assertValid(etree.fromstring(document.encode()))
 
 
 def parse_platforms(document: bytes) -> list[tuple[str, str]]:

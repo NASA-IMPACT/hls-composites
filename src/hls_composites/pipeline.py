@@ -150,17 +150,16 @@ def create_composite(
             )
             composite = build_composite(granules, output=output)
             computed = composite.compute()
-            dest = Path(
-                write_rasters(
-                    computed,
-                    work_dir,
-                    tile_id,
+            dest = work_dir / granule_id
+            rasters = write_rasters(
+                computed,
+                dest,
+                tile_id,
+                date_range,
+                tags=granule_tags(
                     date_range,
-                    tags=granule_tags(
-                        date_range,
-                        spatial_coverage(computed["ValidCount"].to_numpy()),
-                    ),
-                )
+                    spatial_coverage(computed["ValidCount"].to_numpy()),
+                ),
             )
             browse_images = write_browse_images(computed, dest)
 
@@ -168,6 +167,7 @@ def create_composite(
             tile_id,
             date_range,
             dest,
+            rasters,
             browse_images,
             inputs=granules,
             platforms=platforms,

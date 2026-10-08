@@ -18,7 +18,6 @@ from pystac.utils import datetime_to_str
 from hls_composites.crs import mgrs_fields
 from hls_composites.metadata.models import (
     DOI,
-    PLACEHOLDER,
     AssetBand,
     GranuleMetadata,
     browse_description,
@@ -90,13 +89,19 @@ def to_stac_item(meta: GranuleMetadata) -> dict[str, Any]:
     dict
         The item as a dictionary, ready to serialize as JSON.
     """
-    ring = [*meta.boundary, meta.boundary[0]]
+    polygons = [
+        [[list(point) for point in [*ring, ring[0]]]] for ring in meta.footprint
+    ]
+    if len(polygons) == 1:
+        geometry = {"type": "Polygon", "coordinates": polygons[0]}
+    else:
+        geometry = {"type": "MultiPolygon", "coordinates": polygons}
     start = dt.datetime.combine(meta.date_range.start, dt.time.min, tzinfo=dt.UTC)
     end = dt.datetime.combine(meta.date_range.end, dt.time.max, tzinfo=dt.UTC)
 
     item = pystac.Item(
         id=meta.granule_id,
-        geometry={"type": "Polygon", "coordinates": [[list(point) for point in ring]]},
+        geometry=geometry,
         bbox=list(meta.bbox),
         datetime=None,
         start_datetime=start,
@@ -116,12 +121,8 @@ def to_stac_item(meta: GranuleMetadata) -> dict[str, Any]:
 
     item.properties["created"] = datetime_to_str(meta.produced_at)
 
-    # The scientific extension constrains sci:doi to a real DOI pattern, so
-    # claiming one we do not have would make the item invalid. Declare the
-    # extension only once a DOI is assigned.
-    if DOI != PLACEHOLDER:
-        item.stac_extensions.append(SCIENTIFIC_SCHEMA_URI)
-        item.properties["sci:doi"] = DOI
+    item.stac_extensions.append(SCIENTIFIC_SCHEMA_URI)
+    item.properties["sci:doi"] = DOI
 
     # Named as the daily HLS products name their own granule-level coverage.
     item.properties["hls:spatial_coverage"] = meta.spatial_coverage
