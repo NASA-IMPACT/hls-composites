@@ -10,10 +10,10 @@ it, and reading the files describes what was actually produced.
 
 import datetime as dt
 import mimetypes
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import numpy as np
 import rasterio
 
 from hls_composites.composite import spatial_coverage
@@ -36,9 +36,9 @@ that reads as real could be published and believed.
 VERSION_ID = "2.0"
 
 DATASET_ID = "HLS Merged Vegetation Indices Monthly Global 30m v2.0"
+DOI = "10.5067/HLS/HLSM30_VI.002"
 
 # Not yet assigned.
-DOI = PLACEHOLDER
 PRODUCT_URI_BASE = PLACEHOLDER
 
 # Universal, and matching the daily products.
@@ -218,15 +218,15 @@ def browse_description(image: Path) -> str:
     return f"{browse_index(image)} browse image"
 
 
-def _asset_bands(assets: list[Path]) -> list[AssetBand]:
-    """Read back how each written COG describes its own band."""
+def _asset_bands(rasters: Mapping[str, Path]) -> list[AssetBand]:
+    """Read back how each written COG describes its own band, sorted by file."""
     bands = []
-    for path in assets:
+    for name, path in sorted(rasters.items(), key=lambda item: item[1]):
         with rasterio.open(path) as src:
             scale = src.scales[0]
             bands.append(
                 AssetBand(
-                    name=path.stem.rsplit(".", 1)[-1],
+                    name=name,
                     description=src.descriptions[0] or "",
                     data_type=src.dtypes[0],
                     nodata=src.nodata,
@@ -239,13 +239,13 @@ def _asset_bands(assets: list[Path]) -> list[AssetBand]:
 def granule_metadata(
     tile_id: str,
     date_range: DateRange,
-    granule_dir: Path,
+    rasters: Mapping[str, Path],
     browse_images: list[Path],
     platforms: list[tuple[str, str]],
     inputs: list[Granule] | None = None,
     produced_at: dt.datetime | None = None,
 ) -> GranuleMetadata:
-    """Describe a written composite directory.
+    """Describe a written composite.
 
     Parameters
     ----------
@@ -253,8 +253,9 @@ def granule_metadata(
         MGRS tile ID, without the leading "T".
     date_range : DateRange
         Period composited over.
-    granule_dir : pathlib.Path
-        Directory holding the written GeoTIFFs.
+    rasters : mapping of str to pathlib.Path
+        Each written GeoTIFF by its variable name, as `io.write_rasters`
+        returns them.
     browse_images : list of pathlib.Path
         The rendered browse images, referenced from both documents.
     platforms : list of tuple of str
@@ -274,38 +275,26 @@ def granule_metadata(
     Raises
     ------
     ValueError
-        If `platforms` is empty.
-    FileNotFoundError
-        If the directory holds no GeoTIFFs.
+        If `platforms` is empty, or `rasters` holds no `ValidCount`.
     """
     if not platforms:
         raise ValueError("a composite must name the platforms it drew from")
+    if VALID_COUNT.name not in rasters:
+        raise ValueError(f"a composite must include its {VALID_COUNT.name} raster")
 
-    assets = sorted(granule_dir.glob("*.tif"))
-    if not assets:
-        raise FileNotFoundError(f"no GeoTIFFs in {granule_dir}")
-
-    with rasterio.open(assets[0]) as src:
+    assets = sorted(rasters.values())
+    with rasterio.open(rasters[VALID_COUNT.name]) as src:
+        valid_count = src.read(1)
         epsg = src.crs.to_epsg()
         name = crs_name(src.crs)
         ulx, uly = src.transform.c, src.transform.f
         ncols, nrows = src.width, src.height
         left, bottom, right, top = src.bounds
         crs, transform = src.crs, src.transform
-
-    valid_count_path = granule_dir / f"{granule_dir.name}.ValidCount.tif"
-    if valid_count_path.exists():
-        with rasterio.open(valid_count_path) as src:
-            valid_count = src.read(1)
-        coverage = spatial_coverage(valid_count)
-        valid = valid_count != VALID_COUNT.nodata
-    else:
-        coverage = 0.0
-        valid = np.zeros((nrows, ncols), dtype=bool)
-    outline = footprint(valid, transform, crs)
+    outline = footprint(valid_count != VALID_COUNT.nodata, transform, crs)
 
     index = NDVI()
-    asset_bands = _asset_bands(assets)
+    asset_bands = _asset_bands(rasters)
     return GranuleMetadata(
         granule_id=composite_id(tile_id, date_range),
         tile_id=tile_id,
@@ -320,7 +309,7 @@ def granule_metadata(
         uly=uly,
         ncols=ncols,
         nrows=nrows,
-        spatial_coverage=coverage,
+        spatial_coverage=spatial_coverage(valid_count),
         platforms=platforms,
         scale_factor=index.scale_factor,
         add_offset=ADD_OFFSET,

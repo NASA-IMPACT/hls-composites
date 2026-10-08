@@ -21,11 +21,11 @@ PRODUCED_AT = datetime(2026, 9, 3, 12, 0, 0, tzinfo=UTC)
 
 
 @pytest.fixture
-def meta(granule_dir, browse_images):
+def meta(rasters, browse_images):
     return granule_metadata(
         "14TPN",
         FEBRUARY,
-        granule_dir,
+        rasters,
         browse_images,
         platforms=PLATFORMS,
         produced_at=PRODUCED_AT,
@@ -107,15 +107,23 @@ def test_platforms_are_the_ones_given(meta):
     assert meta.platforms == PLATFORMS
 
 
-def test_no_platforms_is_refused(granule_dir, browse_images):
+def test_no_platforms_is_refused(rasters, browse_images):
     """Nothing stands in for them: a stand-in would name the wrong fleet."""
     with pytest.raises(ValueError, match="platform"):
-        granule_metadata("14TPN", FEBRUARY, granule_dir, browse_images, platforms=[])
+        granule_metadata("14TPN", FEBRUARY, rasters, browse_images, platforms=[])
 
 
-def test_produced_at_defaults_to_now(granule_dir, browse_images):
+def test_a_composite_without_valid_count_is_refused(rasters, browse_images):
+    """Coverage and the footprint both come from it."""
+    del rasters["ValidCount"]
+
+    with pytest.raises(ValueError, match="ValidCount"):
+        granule_metadata("14TPN", FEBRUARY, rasters, browse_images, platforms=PLATFORMS)
+
+
+def test_produced_at_defaults_to_now(rasters, browse_images):
     meta = granule_metadata(
-        "14TPN", FEBRUARY, granule_dir, browse_images, platforms=PLATFORMS
+        "14TPN", FEBRUARY, rasters, browse_images, platforms=PLATFORMS
     )
 
     assert meta.produced_at.tzinfo is UTC

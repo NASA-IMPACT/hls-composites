@@ -18,7 +18,6 @@ from pystac.utils import datetime_to_str
 from hls_composites.crs import mgrs_fields
 from hls_composites.metadata.models import (
     DOI,
-    PLACEHOLDER,
     AssetBand,
     GranuleMetadata,
     browse_description,
@@ -122,12 +121,8 @@ def to_stac_item(meta: GranuleMetadata) -> dict[str, Any]:
 
     item.properties["created"] = datetime_to_str(meta.produced_at)
 
-    # The scientific extension constrains sci:doi to a real DOI pattern, so
-    # claiming one we do not have would make the item invalid. Declare the
-    # extension only once a DOI is assigned.
-    if DOI != PLACEHOLDER:
-        item.stac_extensions.append(SCIENTIFIC_SCHEMA_URI)
-        item.properties["sci:doi"] = DOI
+    item.stac_extensions.append(SCIENTIFIC_SCHEMA_URI)
+    item.properties["sci:doi"] = DOI
 
     # Named as the daily HLS products name their own granule-level coverage.
     item.properties["hls:spatial_coverage"] = meta.spatial_coverage

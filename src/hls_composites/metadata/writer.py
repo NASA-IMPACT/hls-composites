@@ -1,6 +1,7 @@
 """Write both metadata documents beside a composite's GeoTIFFs."""
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 
 from hls_composites.metadata.echo10 import to_echo10, validate_echo10
@@ -16,6 +17,7 @@ def write_metadata(
     tile_id: str,
     date_range: DateRange,
     granule_dir: Path,
+    rasters: Mapping[str, Path],
     browse_images: list[Path],
     platforms: list[tuple[str, str]],
     inputs: list[Granule] | None = None,
@@ -31,8 +33,10 @@ def write_metadata(
     date_range : DateRange
         Period composited over.
     granule_dir : pathlib.Path
-        Directory holding the written GeoTIFFs; the documents are written
-        alongside them.
+        Directory the documents are written to, beside the GeoTIFFs.
+    rasters : mapping of str to pathlib.Path
+        Each written GeoTIFF by its variable name, as `io.write_rasters`
+        returns them.
     browse_images : list of pathlib.Path
         The rendered browse images, referenced from both documents.
     platforms : list of tuple of str
@@ -53,7 +57,7 @@ def write_metadata(
     meta = granule_metadata(
         tile_id,
         date_range,
-        granule_dir,
+        rasters,
         browse_images,
         platforms,
         inputs=inputs,

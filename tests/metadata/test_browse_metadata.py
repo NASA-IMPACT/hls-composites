@@ -19,15 +19,15 @@ def several_browse_images(granule_dir):
 
 
 @pytest.fixture
-def with_browse(granule_dir, several_browse_images):
+def with_browse(rasters, several_browse_images):
     return granule_metadata(
-        "14TPN", FEBRUARY, granule_dir, several_browse_images, platforms=PLATFORMS
+        "14TPN", FEBRUARY, rasters, several_browse_images, platforms=PLATFORMS
     )
 
 
 @pytest.fixture
-def without_browse(granule_dir):
-    return granule_metadata("14TPN", FEBRUARY, granule_dir, [], platforms=PLATFORMS)
+def without_browse(rasters):
+    return granule_metadata("14TPN", FEBRUARY, rasters, [], platforms=PLATFORMS)
 
 
 def test_description_names_the_index(several_browse_images):

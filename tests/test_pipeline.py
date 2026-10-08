@@ -46,12 +46,12 @@ def stages(monkeypatch, tmp_path):
         captured["build"] = {"n": len(granules), "kwargs": kwargs}
         return FakeDataset()
 
-    def fake_write(computed, out_dir, tile, date_range, **kwargs):
-        dest = Path(out_dir) / "HLS.M30.T14TPN.2015182.2015212.v2.0"
+    def fake_write(computed, dest, tile, date_range, **kwargs):
         dest.mkdir(parents=True, exist_ok=True)
-        (dest / "a.NDVI.tif").write_bytes(b"x")
-        captured["write"] = {"out_dir": Path(out_dir), "dest": dest}
-        return dest
+        rasters = {"NDVI": dest / "a.NDVI.tif"}
+        rasters["NDVI"].write_bytes(b"x")
+        captured["write"] = {"dest": dest, "rasters": rasters}
+        return rasters
 
     monkeypatch.setattr(pipeline, "scan_bucket_for_granules", fake_scan)
     monkeypatch.setattr(pipeline, "build_composite", fake_build)
@@ -102,7 +102,9 @@ class TestLocalDestination:
             destination=LocalDestination(tmp_path),
         )
 
-        assert stages["write"]["out_dir"] == tmp_path
+        assert (
+            stages["write"]["dest"] == tmp_path / "HLS.M30.T14TPN.2015182.2015212.v2.0"
+        )
         assert result.granule_count == 1
         assert result.uploaded_keys == []
         assert result.found_granules
@@ -151,7 +153,7 @@ class TestS3Destination:
 
         run(S3Destination("out-bucket"))
 
-        work_dir = stages["write"]["out_dir"]
+        work_dir = stages["write"]["dest"].parent
         assert not work_dir.exists()
 
 
@@ -230,11 +232,18 @@ class TestMetadata:
         written: dict = {}
 
         def fake_write_metadata(
-            tile_id, date_range, granule_dir, browse_images, inputs=None, platforms=None
+            tile_id,
+            date_range,
+            granule_dir,
+            rasters,
+            browse_images,
+            inputs=None,
+            platforms=None,
         ):
             written.update(
                 tile_id=tile_id,
                 granule_dir=Path(granule_dir),
+                rasters=rasters,
                 platforms=platforms,
                 inputs=list(inputs or []),
                 browse_images=browse_images,
@@ -252,6 +261,7 @@ class TestMetadata:
 
         assert written["tile_id"] == "14TPN"
         assert written["granule_dir"] == stages["write"]["dest"]
+        assert written["rasters"] == stages["write"]["rasters"]
         # Provenance: the discovered granules reach the metadata.
         assert written["inputs"] == GRANULES
         # The rendered previews are referenced from the metadata.

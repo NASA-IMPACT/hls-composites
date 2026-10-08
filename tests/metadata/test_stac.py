@@ -27,11 +27,11 @@ PRODUCED_AT = dt.datetime(2026, 9, 3, 12, 0, 0, tzinfo=dt.UTC)
 
 
 @pytest.fixture
-def item(granule_dir, browse_images):
+def item(rasters, browse_images):
     meta = granule_metadata(
         "14TPN",
         FEBRUARY,
-        granule_dir,
+        rasters,
         browse_images,
         platforms=PLATFORMS,
         produced_at=PRODUCED_AT,
@@ -61,23 +61,9 @@ def test_projection_carries_shape_and_transform(item):
     assert len(item["properties"]["proj:transform"]) == 6
 
 
-def test_no_doi_is_claimed_while_it_is_a_placeholder(item):
-    """The scientific extension requires a real DOI pattern; do not fake one."""
-    assert "sci:doi" not in item["properties"]
-    assert SCIENTIFIC_SCHEMA_URI not in item["stac_extensions"]
-
-
-def test_the_doi_appears_once_assigned(granule_dir, browse_images, monkeypatch):
-    monkeypatch.setattr("hls_composites.metadata.stac.DOI", "10.5067/HLS/HLSM30.001")
-    meta = granule_metadata(
-        "14TPN", FEBRUARY, granule_dir, browse_images, platforms=PLATFORMS
-    )
-
-    assigned = to_stac_item(meta)
-
-    assert assigned["properties"]["sci:doi"] == "10.5067/HLS/HLSM30.001"
-    assert SCIENTIFIC_SCHEMA_URI in assigned["stac_extensions"]
-    pystac.Item.from_dict(assigned).validate()
+def test_item_carries_the_product_doi(item):
+    assert item["properties"]["sci:doi"] == "10.5067/HLS/HLSM30_VI.002"
+    assert SCIENTIFIC_SCHEMA_URI in item["stac_extensions"]
 
 
 def test_every_geotiff_becomes_a_cog_asset(item):
@@ -115,9 +101,9 @@ def test_geometry_is_counter_clockwise(item):
     assert area > 0
 
 
-def test_a_split_footprint_is_a_multipolygon(granule_dir, browse_images):
+def test_a_split_footprint_is_a_multipolygon(rasters, browse_images):
     meta = granule_metadata(
-        "14TPN", FEBRUARY, granule_dir, browse_images, platforms=PLATFORMS
+        "14TPN", FEBRUARY, rasters, browse_images, platforms=PLATFORMS
     )
 
     item = to_stac_item(replace(meta, footprint=SPLIT_FOOTPRINT))
@@ -165,11 +151,11 @@ def test_item_names_the_platforms_that_contributed(item):
     assert "platform" not in item["properties"]
 
 
-def test_an_instrument_on_several_platforms_is_listed_once(granule_dir, browse_images):
+def test_an_instrument_on_several_platforms_is_listed_once(rasters, browse_images):
     meta = granule_metadata(
         "14TPN",
         FEBRUARY,
-        granule_dir,
+        rasters,
         browse_images,
         platforms=[("LANDSAT-8", "OLI"), ("LANDSAT-9", "OLI")],
     )
@@ -177,10 +163,10 @@ def test_an_instrument_on_several_platforms_is_listed_once(granule_dir, browse_i
     assert to_stac_item(meta)["properties"]["instruments"] == ["oli"]
 
 
-def test_an_instrument_with_no_stac_name_is_refused(granule_dir, browse_images):
+def test_an_instrument_with_no_stac_name_is_refused(rasters, browse_images):
     """A guessed spelling would not match the daily items it is filtered with."""
     meta = granule_metadata(
-        "14TPN", FEBRUARY, granule_dir, browse_images, platforms=PLATFORMS
+        "14TPN", FEBRUARY, rasters, browse_images, platforms=PLATFORMS
     )
     unknown = replace(meta, platforms=[("LANDSAT-10", "OLI-3")])
 

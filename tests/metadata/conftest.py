@@ -81,6 +81,15 @@ def granule_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def rasters(granule_dir: Path) -> dict[str, Path]:
+    """The fixture's GeoTIFFs by variable name, as `write_rasters` returns them."""
+    return {
+        name: granule_dir / f"{GRANULE_ID}.{name}.tif"
+        for name in ("NDVI", "ValidCount")
+    }
+
+
+@pytest.fixture
 def browse_images(granule_dir: Path) -> list[Path]:
     """One preview per index the granule carries."""
     path = granule_dir / f"{GRANULE_ID}.NDVI.png"

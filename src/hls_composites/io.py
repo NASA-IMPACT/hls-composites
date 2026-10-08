@@ -133,13 +133,13 @@ def _grid_tags(crs: CRS, transform: Affine, shape: tuple[int, ...]) -> dict[str,
 
 def write_rasters(
     computed: xr.Dataset,
-    out_dir: str | Path,
+    dest: Path,
     tile: str,
     date_range: DateRange,
     block_size: int = BLOCK_SIZE,
     creation_options: CogCreationOptions | None = None,
     tags: Mapping[str, str] | None = None,
-) -> Path:
+) -> dict[str, Path]:
     """Write each product variable of a computed composite to a COG.
 
     Takes an already-computed Dataset rather than computing one, so the same
@@ -151,8 +151,8 @@ def write_rasters(
     computed : xarray.Dataset
         Computed composite, carrying CRS/transform and per-variable
         `nodata`/`scale_factor`/`predictor` attrs.
-    out_dir : str or pathlib.Path
-        Directory the `{granule_id}/` output folder is created under.
+    dest : pathlib.Path
+        Directory the files are written to, created if missing.
     tile : str
         MGRS tile ID, without the leading "T" (see `composite_id`).
     date_range : DateRange
@@ -169,13 +169,12 @@ def write_rasters(
 
     Returns
     -------
-    pathlib.Path
-        The `{out_dir}/{granule_id}` directory the files were written to.
+    dict of str to pathlib.Path
+        Each variable's name and the `{granule_id}.{name}.tif` written for it.
     """
     if creation_options is None:
         creation_options = DEFAULT_CREATION_OPTIONS
     granule_id = composite_id(tile, date_range)
-    dest = Path(out_dir) / granule_id
     dest.mkdir(parents=True, exist_ok=True)
 
     sample = next(iter(computed.data_vars.values()))
@@ -186,9 +185,11 @@ def write_rasters(
         tile,
     )
 
+    written = {}
     for name, array in computed.data_vars.items():
+        path = dest / f"{granule_id}.{name}.tif"
         _write_cog(
-            dest / f"{granule_id}.{name}.tif",
+            path,
             array,
             block_size,
             creation_options,
@@ -196,4 +197,5 @@ def write_rasters(
             transform,
             {"GRANULE_ID": granule_id, **(tags or {})},
         )
-    return dest
+        written[str(name)] = path
+    return written

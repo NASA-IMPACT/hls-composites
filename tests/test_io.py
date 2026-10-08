@@ -41,21 +41,24 @@ def _georef_dataset() -> xr.Dataset:
     return ds.rio.write_crs(CRS)
 
 
-def test_write_rasters_creates_named_dir_and_files(tmp_path):
+def test_write_rasters_returns_each_named_file(tmp_path):
     date_range = DateRange(start=date(2020, 7, 1), end=date(2020, 7, 31))
-    dest = write_rasters(_georef_dataset(), tmp_path, "14TPN", date_range)
+    dest = tmp_path / "granule"
+    written = write_rasters(_georef_dataset(), dest, "14TPN", date_range)
 
     granule_id = "HLS.M30.T14TPN.2020183.2020213.v2.0"
-    assert dest == tmp_path / granule_id
-    for var in ("NDVI", "NDVI_std", "ValidCount", "DOY"):
-        assert (dest / f"{granule_id}.{var}.tif").exists()
+    assert written == {
+        var: dest / f"{granule_id}.{var}.tif"
+        for var in ("NDVI", "NDVI_std", "ValidCount", "DOY")
+    }
+    assert all(path.exists() for path in written.values())
 
 
 def test_written_cog_matches_the_daily_products_layout(tmp_path):
     date_range = DateRange(start=date(2020, 7, 1), end=date(2020, 7, 31))
-    dest = write_rasters(_georef_dataset(), tmp_path, "14TPN", date_range)
+    rasters = write_rasters(_georef_dataset(), tmp_path, "14TPN", date_range)
 
-    with rasterio.open(dest / "HLS.M30.T14TPN.2020183.2020213.v2.0.NDVI.tif") as src:
+    with rasterio.open(rasters["NDVI"]) as src:
         assert src.profile["tiled"] is True
         assert src.profile["blockxsize"] == BLOCK_SIZE
         assert src.profile["blockysize"] == BLOCK_SIZE
@@ -68,12 +71,12 @@ def test_written_cog_matches_the_daily_products_layout(tmp_path):
 
 def test_written_cog_is_self_describing(tmp_path):
     date_range = DateRange(start=date(2020, 7, 1), end=date(2020, 7, 31))
-    dest = write_rasters(
+    rasters = write_rasters(
         _georef_dataset(), tmp_path, "14TPN", date_range, tags={"ACCODE": "test"}
     )
 
     granule_id = "HLS.M30.T14TPN.2020183.2020213.v2.0"
-    with rasterio.open(dest / f"{granule_id}.NDVI.tif") as src:
+    with rasterio.open(rasters["NDVI"]) as src:
         assert src.descriptions == (NDVI_LONG_NAME,)
         tags = src.tags()
 
@@ -96,10 +99,9 @@ def test_written_cog_is_self_describing(tmp_path):
 def test_written_geotiff_round_trips_dtype_nodata_crs_and_scale(tmp_path):
     date_range = DateRange(start=date(2020, 7, 1), end=date(2020, 7, 31))
     ds = _georef_dataset()
-    dest = write_rasters(ds, tmp_path, "14TPN", date_range)
-    prefix = dest / "HLS.M30.T14TPN.2020183.2020213.v2.0"
+    rasters = write_rasters(ds, tmp_path, "14TPN", date_range)
 
-    with rasterio.open(f"{prefix}.NDVI.tif") as src:
+    with rasterio.open(rasters["NDVI"]) as src:
         assert src.dtypes[0] == "int16"
         assert src.nodata == -19999
         assert src.crs == rasterio.crs.CRS.from_string(CRS)
@@ -110,7 +112,7 @@ def test_written_geotiff_round_trips_dtype_nodata_crs_and_scale(tmp_path):
     # Aux layers declare a negative fill, and the writer must stamp it on the
     # image.
     for var in ("ValidCount", "DOY"):
-        with rasterio.open(f"{prefix}.{var}.tif") as src:
+        with rasterio.open(rasters[var]) as src:
             assert src.dtypes[0] == "int16"
             assert src.nodata == VALID_COUNT.nodata
             assert src.scales[0] == 1.0
@@ -120,9 +122,9 @@ def test_written_geotiff_omits_nodata_when_the_variable_declares_none(tmp_path):
     date_range = DateRange(start=date(2020, 7, 1), end=date(2020, 7, 31))
     ds = _georef_dataset()
     del ds["DOY"].attrs["nodata"]
-    dest = write_rasters(ds, tmp_path, "14TPN", date_range)
+    rasters = write_rasters(ds, tmp_path, "14TPN", date_range)
 
-    with rasterio.open(dest / "HLS.M30.T14TPN.2020183.2020213.v2.0.DOY.tif") as src:
+    with rasterio.open(rasters["DOY"]) as src:
         assert src.nodata is None
 
 
@@ -134,13 +136,13 @@ def test_write_rasters_writes_each_band_with_its_declared_predictor(tmp_path):
         ds[name] = (("y", "x"), np.zeros(shape, dtype=np.int16))
         ds[name].attrs["predictor"] = predictor
 
-    dest = write_rasters(
+    rasters = write_rasters(
         ds, tmp_path, "14TPN", DateRange(date(2020, 7, 1), date(2020, 7, 31))
     )
 
     written = {
-        path.name.split(".")[-2]: rasterio.open(path).tags(ns="IMAGE_STRUCTURE")
-        for path in dest.glob("*.tif")
+        name: rasterio.open(path).tags(ns="IMAGE_STRUCTURE")
+        for name, path in rasters.items()
     }
     assert written["NDVI"]["PREDICTOR"] == "2"
     assert "PREDICTOR" not in written["NDVI_std"]

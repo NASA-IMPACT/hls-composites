@@ -108,5 +108,4 @@ Each composite directory also carries `{granule_id}.cmr.xml` (ECHO-10 granule me
 `{granule_id}_stac.json` (a STAC item). Both are written from one model, so they cannot disagree. The collection-level
 values they carry -- short name, dataset ID, DOI, product URI, and the compositing algorithm description -- are
 constants in `src/hls_composites/metadata/models.py`. Those the DAAC has not assigned yet are the literal string
-`PLACEHOLDER`; the STAC item omits `sci:doi` entirely until a real DOI exists, since the scientific extension validates
-it against a DOI pattern.
+`PLACEHOLDER`.
