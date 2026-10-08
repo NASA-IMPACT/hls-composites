@@ -169,7 +169,7 @@ def to_echo10(meta: GranuleMetadata) -> str:
 def _granule_schema() -> etree.XMLSchema:
     # Granule.xsd includes MetadataCommon.xsd by relative path, so the schema
     # must be parsed from a real file location rather than from a string.
-    schema_dir = resources.files("hls_composites.metadata") / "schema"
+    schema_dir = resources.files("hls_composites.metadata") / "schema" / "echo" / "10.0"
     with resources.as_file(schema_dir / "Granule.xsd") as path:
         return etree.XMLSchema(etree.parse(path))
 
