@@ -2,8 +2,9 @@
 
 The outline is the convex hull of the valid pixels, taken in the rasters' own
 projected CRS: a UTM grid is planar and never crosses the antimeridian, so the
-hull is well defined there. Only its few vertices are then reprojected, and
-`antimeridian` splits the result wherever it crosses 180 degrees.
+hull is well defined there. The hull's edges are densified before its vertices
+are reprojected, and `antimeridian` splits the result wherever it crosses 180
+degrees.
 """
 
 import antimeridian
@@ -11,10 +12,16 @@ import numpy as np
 from affine import Affine
 from rasterio.crs import CRS
 from rasterio.warp import transform as transform_points
-from shapely import MultiPoint, MultiPolygon, Polygon
+from shapely import MultiPoint, MultiPolygon, Polygon, segmentize
 from shapely.geometry.polygon import orient
 
 Ring = list[tuple[float, float]]
+
+# A straight projected edge bows away from the straight lon/lat line between
+# its reprojected ends, by up to ~2 km along a 110 km tile edge at 84N. The bow
+# grows with the square of edge length, so 10 km edges keep it under a 30 m
+# pixel.
+MAX_EDGE_LENGTH = 10_000.0
 
 
 def _pixel_corners(valid: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -70,7 +77,7 @@ def footprint(valid: np.ndarray, transform: Affine, crs: CRS) -> list[Ring]:
     hull = MultiPoint(np.column_stack([xs, ys])).convex_hull
     # Even a single pixel's four corners enclose an area.
     assert isinstance(hull, Polygon)
-    hull = orient(hull, sign=1.0)
+    hull = segmentize(orient(hull, sign=1.0), MAX_EDGE_LENGTH)
 
     hull_xs, hull_ys = hull.exterior.coords.xy
     lons, lats = transform_points(crs, "EPSG:4326", list(hull_xs), list(hull_ys))[:2]

@@ -7,7 +7,11 @@ from rasterio.transform import from_origin
 from rasterio.warp import transform as transform_points
 from shapely import Point, Polygon
 
-from hls_composites.metadata.footprint import footprint, footprint_bbox
+from hls_composites.metadata.footprint import (
+    MAX_EDGE_LENGTH,
+    footprint,
+    footprint_bbox,
+)
 
 SIZE = 366
 PIXEL = 300.0
@@ -37,14 +41,41 @@ def signed_area(ring):
 
 
 @pytest.mark.parametrize("location", [MID_LATITUDE, HIGH_LATITUDE])
-def test_a_full_grid_is_outlined_by_its_corners(location):
+def test_a_full_grid_is_outlined_through_its_corners(location):
     transform, crs = grid(location)
     valid = np.ones((SIZE, SIZE), dtype=bool)
 
     [ring] = footprint(valid, transform, crs)
 
     lons, lats = corners_lonlat(transform, crs, [0, SIZE, SIZE, 0], [0, 0, SIZE, SIZE])
-    np.testing.assert_allclose(sorted(ring), sorted(zip(lons, lats, strict=True)))
+    for corner in zip(lons, lats, strict=True):
+        assert min(np.hypot(*np.subtract(vertex, corner)) for vertex in ring) < 1e-9
+
+
+def test_outline_edges_are_densified():
+    transform, crs = grid(HIGH_LATITUDE)
+
+    [ring] = footprint(np.ones((SIZE, SIZE), dtype=bool), transform, crs)
+
+    xs, ys = transform_points("EPSG:4326", crs, *zip(*ring, strict=True))[:2]
+    projected = [*zip(xs, ys, strict=True), (xs[0], ys[0])]
+    lengths = [np.hypot(x1 - x0, y1 - y0) for (x0, y0), (x1, y1) in pairwise(projected)]
+    assert max(lengths) <= MAX_EDGE_LENGTH + 1e-6
+
+
+def test_outline_follows_the_grid_edges_at_high_latitude():
+    """Straight projected edges bow in lon/lat, so the outline must bend too."""
+    transform, crs = grid(HIGH_LATITUDE)
+    [ring] = footprint(np.ones((SIZE, SIZE), dtype=bool), transform, crs)
+
+    t = np.linspace(0, SIZE, 61)
+    cols = np.concatenate([t, np.full_like(t, SIZE), t, np.zeros_like(t)])
+    rows = np.concatenate([np.zeros_like(t), t, np.full_like(t, SIZE), t])
+    lons, lats = corners_lonlat(transform, crs, cols, rows)
+
+    outline = Polygon(ring).exterior
+    # Within 0.001 degrees of latitude (~110 m), a few 30 m pixels.
+    assert max(outline.distance(Point(p)) for p in zip(lons, lats, strict=True)) < 1e-3
 
 
 def test_an_empty_grid_is_outlined_whole():
@@ -72,7 +103,6 @@ def test_a_partial_grid_is_outlined_tightly():
     [ring] = footprint(triangle, transform, crs)
     [whole] = footprint(np.ones((SIZE, SIZE), dtype=bool), transform, crs)
 
-    assert len(ring) <= 5
     assert Polygon(ring).area / Polygon(whole).area == pytest.approx(0.5, abs=0.01)
 
 
@@ -102,6 +132,27 @@ def test_a_sliver_is_outlined_around_just_the_sliver():
         [SIZE - 1, SIZE - 1, SIZE, SIZE],
     )
     np.testing.assert_allclose(sorted(ring), sorted(zip(lons, lats, strict=True)))
+
+
+@pytest.mark.parametrize(
+    "sliver",
+    [np.s_[:, SIZE - 1 :], np.s_[SIZE - 1 :, :]],
+    ids=["column", "row"],
+)
+def test_a_high_latitude_sliver_stays_a_valid_polygon(sliver):
+    """A long, one pixel wide outline must not invert or self-intersect."""
+    transform, crs = grid(HIGH_LATITUDE)
+    valid = np.zeros((SIZE, SIZE), dtype=bool)
+    valid[sliver] = True
+
+    [ring] = footprint(valid, transform, crs)
+
+    assert Polygon(ring).is_valid
+    assert signed_area(ring) > 0
+    rows, cols = np.nonzero(valid)
+    lons, lats = corners_lonlat(transform, crs, cols + 0.5, rows + 0.5)
+    outline = Polygon(ring)
+    assert all(outline.contains(Point(lon, lat)) for lon, lat in zip(lons, lats))
 
 
 def test_an_outline_crossing_the_antimeridian_is_split_there():
