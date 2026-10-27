@@ -64,7 +64,7 @@ hls-manifest = { url = "https://github.com/NASA-IMPACT/hls-manifest/releases/dow
 batch-event-job-monitor = { url = "https://github.com/NASA-IMPACT/batch-event-job-monitor/releases/download/v0.3.0/batch_event_job_monitor-0.3.0-py3-none-any.whl" }
 
 [build-system]
-requires = ["uv_build>=0.9.10,<0.10.0"]
+requires = ["uv_build>=0.9.10,<0.14.0"]
 build-backend = "uv_build"
 
 [tool.ruff.lint]
