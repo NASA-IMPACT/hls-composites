@@ -68,4 +68,3 @@ jobs:
     uses: ./.github/workflows/deploy.yml
     with:
       environment: prod
-    secrets: inherit

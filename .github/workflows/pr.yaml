@@ -40,4 +40,3 @@ jobs:
     uses: ./.github/workflows/deploy.yml
     with:
       environment: dev
-    secrets: inherit

@@ -61,20 +61,18 @@ jobs:
           role-session-name: ${{ github.actor }}
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
 
-      - name: Convert secrets and vars to environment variables
+      - name: Convert vars to environment variables
         # cdk/settings.py reads every stack setting from the environment, so the
-        # environment's vars and secrets are what configure the deployment.
+        # environment's vars are what configure the deployment. Any secret must
+        # be passed by name in the env block of the deploy step.
         shell: python
         run: |
           import os
 
-          secrets_and_vars = {
-              **${{ toJson(secrets) }},
-              **${{ toJson(vars) }},
-          }
+          deploy_vars = ${{ toJson(vars) }}
 
           with open(os.environ["GITHUB_ENV"], "a") as env_file:
-              for name, value in secrets_and_vars.items():
+              for name, value in deploy_vars.items():
                   # https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands#multiline-strings
                   if "\n" in value:
                       print(f"{name}<<EOF\n{value}\nEOF", file=env_file)
