@@ -320,13 +320,13 @@ wheels = [
 
 [[package]]
 name = "batch-event-job-monitor"
-version = "0.2.2"
-source = { url = "https://github.com/NASA-IMPACT/batch-event-job-monitor/releases/download/v0.2.2/batch_event_job_monitor-0.2.2-py3-none-any.whl" }
+version = "0.3.0"
+source = { url = "https://github.com/NASA-IMPACT/batch-event-job-monitor/releases/download/v0.3.0/batch_event_job_monitor-0.3.0-py3-none-any.whl" }
 dependencies = [
     { name = "boto3" },
 ]
 wheels = [
-    { url = "https://github.com/NASA-IMPACT/batch-event-job-monitor/releases/download/v0.2.2/batch_event_job_monitor-0.2.2-py3-none-any.whl", hash = "sha256:1442f118d2ff31625a53f4572f2864c219c4ca0bb54d5a99f35a248b35d13a97" },
+    { url = "https://github.com/NASA-IMPACT/batch-event-job-monitor/releases/download/v0.3.0/batch_event_job_monitor-0.3.0-py3-none-any.whl", hash = "sha256:654f8f806016512674c96177ec0d51c0fb72f92cbac7ad22fc44689a0d152831" },
 ]
 
 [package.optional-dependencies]
@@ -1038,13 +1038,13 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 backfill = [
-    { name = "batch-event-job-monitor", url = "https://github.com/NASA-IMPACT/batch-event-job-monitor/releases/download/v0.2.2/batch_event_job_monitor-0.2.2-py3-none-any.whl" },
+    { name = "batch-event-job-monitor", url = "https://github.com/NASA-IMPACT/batch-event-job-monitor/releases/download/v0.3.0/batch_event_job_monitor-0.3.0-py3-none-any.whl" },
     { name = "boto3", specifier = ">=1.35.0" },
 ]
 deploy = [
     { name = "aws-cdk-aws-lambda-python-alpha", specifier = ">=2.191.0a0" },
     { name = "aws-cdk-lib", specifier = ">=2.269.0" },
-    { name = "batch-event-job-monitor", extras = ["cdk"], url = "https://github.com/NASA-IMPACT/batch-event-job-monitor/releases/download/v0.2.2/batch_event_job_monitor-0.2.2-py3-none-any.whl" },
+    { name = "batch-event-job-monitor", extras = ["cdk"], url = "https://github.com/NASA-IMPACT/batch-event-job-monitor/releases/download/v0.3.0/batch_event_job_monitor-0.3.0-py3-none-any.whl" },
     { name = "constructs", specifier = ">=10.4.2" },
     { name = "pydantic-settings", specifier = ">=2.8.0" },
 ]
