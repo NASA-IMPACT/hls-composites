@@ -116,7 +116,9 @@ class JobMonitoring(Construct):
         stage:
             Deployment stage. A `dev` processing bucket and its monitoring
             queues are emptied and deleted with the stack; anything else keeps
-            its processing history and any undelivered messages.
+            its processing history and any undelivered messages. Also part of
+            the names of the queues and functions created here, since stages
+            can share an account.
         database_name:
             Glue database holding the records, state, and outputs tables.
         inventory_start_datetime:
@@ -133,6 +135,7 @@ class JobMonitoring(Construct):
             if is_dev
             else RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE
         )
+        name_prefix = f"hls-composites-{stage}"
 
         self.processing_bucket = ProcessingBucket(
             self,
@@ -156,6 +159,7 @@ class JobMonitoring(Construct):
             "Queues",
             encryption=sqs.QueueEncryption.SQS_MANAGED,
             removal_policy=removal_policy,
+            name_prefix=name_prefix,
         )
 
         self.job_type_configs = {
@@ -179,12 +183,14 @@ class JobMonitoring(Construct):
             key_prefix=self.processing_bucket.key_prefix,
             job_type_configs=self.job_type_configs,
             queues=self.queues,
+            name_prefix=name_prefix,
         )
         self.resubmit = JobResubmitFunction(
             self,
             "JobResubmit",
             job_type_configs=self.job_type_configs,
             retry_queue=self.queues.retry_queue,
+            name_prefix=name_prefix,
         )
 
         self.database = glue.CfnDatabase(
@@ -235,6 +241,7 @@ class JobMonitoring(Construct):
             ),
             inventory_datetime_start=inventory_start_datetime,
             partition_keys=keys,
+            name_prefix=name_prefix,
         )
         self.records_rollup_function = RecordsRollupFunction(
             self,
@@ -242,6 +249,7 @@ class JobMonitoring(Construct):
             processing_bucket=self.processing_bucket.bucket,
             database_name=database_name,
             rollup_table=self.records_rollup_table,
+            name_prefix=name_prefix,
         )
 
         CfnOutput(
