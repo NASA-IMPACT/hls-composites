@@ -1,12 +1,12 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.15' and sys_platform == 'win32'",
-    "python_full_version == '3.14.*' and sys_platform == 'win32'",
     "python_full_version >= '3.15' and sys_platform == 'emscripten'",
-    "python_full_version == '3.14.*' and sys_platform == 'emscripten'",
     "python_full_version >= '3.15' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version == '3.14.*' and sys_platform == 'win32'",
+    "python_full_version == '3.14.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.14.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version < '3.14' and sys_platform == 'win32'",
     "python_full_version < '3.14' and sys_platform == 'emscripten'",
@@ -320,13 +320,13 @@ wheels = [
 
 [[package]]
 name = "batch-event-job-monitor"
-version = "0.3.0"
-source = { url = "https://github.com/NASA-IMPACT/batch-event-job-monitor/releases/download/v0.3.0/batch_event_job_monitor-0.3.0-py3-none-any.whl" }
+version = "0.3.1"
+source = { url = "https://github.com/NASA-IMPACT/batch-event-job-monitor/releases/download/v0.3.1/batch_event_job_monitor-0.3.1-py3-none-any.whl" }
 dependencies = [
     { name = "boto3" },
 ]
 wheels = [
-    { url = "https://github.com/NASA-IMPACT/batch-event-job-monitor/releases/download/v0.3.0/batch_event_job_monitor-0.3.0-py3-none-any.whl", hash = "sha256:654f8f806016512674c96177ec0d51c0fb72f92cbac7ad22fc44689a0d152831" },
+    { url = "https://github.com/NASA-IMPACT/batch-event-job-monitor/releases/download/v0.3.1/batch_event_job_monitor-0.3.1-py3-none-any.whl", hash = "sha256:431d3b4d0f692588cd08a237950047b526871bf8d94d3abdc17d28e77b19d76a" },
 ]
 
 [package.optional-dependencies]
@@ -1038,13 +1038,13 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 backfill = [
-    { name = "batch-event-job-monitor", url = "https://github.com/NASA-IMPACT/batch-event-job-monitor/releases/download/v0.3.0/batch_event_job_monitor-0.3.0-py3-none-any.whl" },
+    { name = "batch-event-job-monitor", url = "https://github.com/NASA-IMPACT/batch-event-job-monitor/releases/download/v0.3.1/batch_event_job_monitor-0.3.1-py3-none-any.whl" },
     { name = "boto3", specifier = ">=1.35.0" },
 ]
 deploy = [
     { name = "aws-cdk-aws-lambda-python-alpha", specifier = ">=2.191.0a0" },
     { name = "aws-cdk-lib", specifier = ">=2.269.0" },
-    { name = "batch-event-job-monitor", extras = ["cdk"], url = "https://github.com/NASA-IMPACT/batch-event-job-monitor/releases/download/v0.3.0/batch_event_job_monitor-0.3.0-py3-none-any.whl" },
+    { name = "batch-event-job-monitor", extras = ["cdk"], url = "https://github.com/NASA-IMPACT/batch-event-job-monitor/releases/download/v0.3.1/batch_event_job_monitor-0.3.1-py3-none-any.whl" },
     { name = "constructs", specifier = ">=10.4.2" },
     { name = "pydantic-settings", specifier = ">=2.8.0" },
 ]
