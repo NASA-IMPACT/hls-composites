@@ -1,0 +1,138 @@
+#!/usr/bin/env -S uv run --group backfill --script
+# -*- mode: python -*-
+# vim: set ft=python:
+"""Move jobs from the failure DLQ back onto the retry queue.
+
+Messages keep their attempt number, so a job that has used up its retries gets
+one more attempt and returns to the failure DLQ if it fails again.
+
+Retries go straight to Batch without the feeder's backpressure. Use
+--max-messages to redrive a large DLQ in pieces.
+
+Reports what would move unless --execute is passed.
+
+    scripts/redrive-failure-dlq --stage dev
+    scripts/redrive-failure-dlq --stage dev --execute
+    scripts/redrive-failure-dlq --stage dev --execute --max-messages 50
+"""
+
+import argparse
+from collections import Counter
+from collections.abc import Iterator
+from typing import Any
+
+import boto3
+from batch_event_job_monitor import RetryMessage
+
+VISIBILITY_TIMEOUT_SECONDS = 900
+"""How long received messages stay hidden, so one run never sees them twice."""
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("--stage", required=True)
+    parser.add_argument("--region", default="us-west-2")
+    parser.add_argument(
+        "--state", action="append", help="Only move this failure state (repeatable)"
+    )
+    parser.add_argument(
+        "--max-messages",
+        type=int,
+        help="Examine at most this many messages (default: the DLQ's starting depth)",
+    )
+    parser.add_argument(
+        "--execute", action="store_true", help="Move messages instead of reporting"
+    )
+    return parser.parse_args()
+
+
+def queue_depth(sqs, queue_url: str) -> int:
+    attributes = sqs.get_queue_attributes(
+        QueueUrl=queue_url, AttributeNames=["ApproximateNumberOfMessages"]
+    )["Attributes"]
+    return int(attributes["ApproximateNumberOfMessages"])
+
+
+def receive(sqs, queue_url: str, limit: int) -> Iterator[dict[str, Any]]:
+    """Yield up to `limit` distinct messages, hiding each from other readers.
+
+    The limit is what ends the run: a redriven job that fails quickly lands back
+    on this queue as a new message, and would otherwise be picked up again.
+    """
+    seen: set[str] = set()
+    while len(seen) < limit:
+        messages = sqs.receive_message(
+            QueueUrl=queue_url,
+            MaxNumberOfMessages=min(10, limit - len(seen)),
+            WaitTimeSeconds=2,
+            VisibilityTimeout=VISIBILITY_TIMEOUT_SECONDS,
+        ).get("Messages", [])
+        if not messages:
+            return
+        for message in messages:
+            if message["MessageId"] not in seen:
+                seen.add(message["MessageId"])
+                yield message
+
+
+def main() -> None:
+    args = parse_args()
+    sqs = boto3.client("sqs", region_name=args.region)
+    prefix = f"hls-composites-{args.stage}"
+    source = sqs.get_queue_url(QueueName=f"{prefix}-failure-dlq")["QueueUrl"]
+    target = sqs.get_queue_url(QueueName=f"{prefix}-retry-queue")["QueueUrl"]
+
+    limit = args.max_messages
+    if limit is None:
+        limit = queue_depth(sqs, source)
+
+    verb = "moved" if args.execute else "would move"
+    selected: Counter[tuple[str, int]] = Counter()
+    not_selected = 0
+    returned_to_dlq: list[str] = []
+    try:
+        for message in receive(sqs, source, limit):
+            handle = message["ReceiptHandle"]
+            try:
+                retry = RetryMessage.from_json(message["Body"])
+            except (TypeError, ValueError) as error:
+                print(f"unparseable, left in DLQ: {message['MessageId']}: {error}")
+                not_selected += 1
+                returned_to_dlq.append(handle)
+                continue
+
+            if args.state and retry.state not in args.state:
+                not_selected += 1
+                returned_to_dlq.append(handle)
+                continue
+
+            if args.execute:
+                # Send first: a crash between these calls duplicates a retry
+                # rather than losing the job.
+                sqs.send_message(QueueUrl=target, MessageBody=message["Body"])
+                sqs.delete_message(QueueUrl=source, ReceiptHandle=handle)
+            else:
+                returned_to_dlq.append(handle)
+
+            selected[(retry.state, retry.attempt)] += 1
+            print(
+                f"{verb}: {retry.output_entity_id} "
+                f"state={retry.state} attempt={retry.attempt}"
+            )
+    finally:
+        for handle in returned_to_dlq:
+            sqs.change_message_visibility(
+                QueueUrl=source, ReceiptHandle=handle, VisibilityTimeout=0
+            )
+
+    print(f"\n{sum(selected.values()):,} {verb}, {not_selected:,} left in DLQ")
+    for (state, attempt), count in sorted(selected.items()):
+        print(f"  {count:,} {state} attempt={attempt}")
+    if not args.execute:
+        print("\nNothing moved; pass --execute to move these messages")
+
+
+if __name__ == "__main__":
+    main()
