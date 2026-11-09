@@ -68,10 +68,10 @@ Set these as **variables** on the GitHub environments `dev` and `prod`:
 
 ### Container image
 
-The deploy workflow does not compute an image tag. `PROCESSING_CONTAINER_ECR_URI` is a GitHub environment variable, so
-`dev` points at whatever tag you choose and `prod` points at the release tag (or `:latest`, which the release build also
-pushes). Note that nothing builds an image on push to `main` today -- only pull requests (`pr-<n>`, `sha-<sha>`) and
-releases produce images.
+`PROCESSING_CONTAINER_ECR_URI` is a GitHub environment variable, so `dev` and manually dispatched deploys use whatever
+tag it names. A release deploy to `prod` keeps the variable's registry and repository but replaces its tag with the
+release tag it just pushed, so the variable does not need updating for each release. Note that nothing builds an image
+on push to `main` today -- only pull requests (`pr-<n>`, `sha-<sha>`) and releases produce images.
 
 ## Prerequisites outside this repository
 

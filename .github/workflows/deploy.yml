@@ -16,6 +16,10 @@ on:
       environment:
         required: true
         type: string
+      image_tag:
+        description: "Replaces the tag on the environment's PROCESSING_CONTAINER_ECR_URI"
+        required: false
+        type: string
 
 defaults:
   run:
@@ -78,6 +82,12 @@ jobs:
                       print(f"{name}<<EOF\n{value}\nEOF", file=env_file)
                   else:
                       print(f"{name}={value}", file=env_file)
+
+      - name: Use the requested image tag
+        if: inputs.image_tag != ''
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: echo "PROCESSING_CONTAINER_ECR_URI=${PROCESSING_CONTAINER_ECR_URI%:*}:${IMAGE_TAG}" >> "$GITHUB_ENV"
 
       - name: Deploy to ${{ inputs.environment }}
         run: uv run cdk deploy --require-approval never
