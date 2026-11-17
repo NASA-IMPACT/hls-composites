@@ -30,6 +30,71 @@ def months(start: YearMonth, end: YearMonth) -> list[YearMonth]:
     return [YearMonth.from_ordinal(i) for i in range(start.ordinal, end.ordinal + 1)]
 
 
+def parse_year_month_list(data: bytes) -> list[YearMonth]:
+    """Parse a newline-delimited list of `YYYY-MM` months, ignoring blank lines.
+
+    Raises
+    ------
+    ValueError
+        If any non-blank line is not exactly `YYYY-MM`.
+    """
+    parsed = []
+    for number, line in enumerate(data.decode().splitlines(), start=1):
+        if not (text := line.strip()):
+            continue
+        try:
+            parsed.append(YearMonth.parse(text))
+        except ValueError as error:
+            raise ValueError(f"line {number}: {error}") from None
+    return parsed
+
+
+def _check_within(
+    year_months: list[YearMonth], listed: list[YearMonth]
+) -> set[YearMonth]:
+    """`listed` as a set, after checking every month falls within `year_months`.
+
+    A listed month outside the range is almost certainly a typo or the wrong
+    range, and silently ignoring it would schedule (or skip) the wrong work.
+    """
+    wanted = set(listed)
+    outside = sorted(wanted - set(year_months))
+    if outside:
+        raise ValueError(
+            f"listed months outside {year_months[0]} .. {year_months[-1]}: "
+            + ", ".join(str(ym) for ym in outside)
+        )
+    return wanted
+
+
+def include_months(
+    year_months: list[YearMonth], listed: list[YearMonth]
+) -> list[YearMonth]:
+    """The months of `year_months` that appear in `listed`, in range order.
+
+    Raises
+    ------
+    ValueError
+        If any listed month is outside `year_months`.
+    """
+    wanted = _check_within(year_months, listed)
+    return [ym for ym in year_months if ym in wanted]
+
+
+def exclude_months(
+    year_months: list[YearMonth], listed: list[YearMonth]
+) -> list[YearMonth]:
+    """The months of `year_months` that do not appear in `listed`, in range order.
+
+    Raises
+    ------
+    ValueError
+        If any listed month is outside `year_months`.
+    """
+    unwanted = _check_within(year_months, listed)
+    return [ym for ym in year_months if ym not in unwanted]
+
+
 def tile_list_digest(data: bytes) -> str:
     """Content hash of a tile list, as stored in a plan's `plan_version`."""
     return f"sha256:{hashlib.sha256(data).hexdigest()}"

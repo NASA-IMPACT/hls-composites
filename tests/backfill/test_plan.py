@@ -5,8 +5,11 @@ import pytest
 from hls_composites.backfill.plan import (
     BackfillPlan,
     Segment,
+    exclude_months,
+    include_months,
     months,
     parse_tile_list,
+    parse_year_month_list,
     tile_list_digest,
 )
 from hls_composites.models import YearMonth
@@ -44,6 +47,49 @@ def test_parse_tile_list_strips_blanks_and_whitespace():
         "01FBF",
         "60WWV",
     ]
+
+
+def test_parse_year_month_list_strips_blanks_and_whitespace():
+    assert parse_year_month_list(b"2026-08\n\n  2023-06 \n2023-05") == [
+        YearMonth(2026, 8),
+        YearMonth(2023, 6),
+        YearMonth(2023, 5),
+    ]
+
+
+def test_parse_year_month_list_reports_the_bad_line():
+    with pytest.raises(ValueError, match="line 2"):
+        parse_year_month_list(b"2026-08\n2023-6\n")
+
+
+RANGE = months(YearMonth(2023, 4), YearMonth(2023, 7))
+
+
+def test_exclude_months_drops_listed_and_keeps_order():
+    assert exclude_months(RANGE, [YearMonth(2023, 6), YearMonth(2023, 4)]) == [
+        YearMonth(2023, 5),
+        YearMonth(2023, 7),
+    ]
+
+
+def test_include_months_keeps_only_listed_in_range_order():
+    assert include_months(RANGE, [YearMonth(2023, 6), YearMonth(2023, 4)]) == [
+        YearMonth(2023, 4),
+        YearMonth(2023, 6),
+    ]
+
+
+def test_include_and_exclude_partition_the_range():
+    listed = [YearMonth(2023, 5)]
+    assert sorted(include_months(RANGE, listed) + exclude_months(RANGE, listed)) == (
+        RANGE
+    )
+
+
+@pytest.mark.parametrize("select", [include_months, exclude_months])
+def test_selection_rejects_months_outside_the_range(select):
+    with pytest.raises(ValueError, match="2023-08"):
+        select(RANGE, [YearMonth(2023, 5), YearMonth(2023, 8)])
 
 
 def test_tile_list_digest_is_stable_and_prefixed():
