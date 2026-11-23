@@ -94,13 +94,12 @@ class DateRange:
         """Compute S3 year prefixes covering this range.
 
         One ``YYYY`` prefix per calendar year touched by the range.
-        HLS has at most one observation per day per satellite, so even
-        a full year (<=366 keys) fits well within a single
-        ``list_objects_v2`` page (max 1000 keys); the boto3 paginator
-        transparently fetches further pages if that assumption is ever
-        exceeded. Splitting more finely than "one call per year" would
-        add round-trips without reducing page count, so this doesn't
-        bother.
+        A tile can see several acquisitions per day per satellite where
+        adjacent orbital paths overlap (common at high latitudes), so a
+        year's listing may exceed one ``list_objects_v2`` page (max 1000
+        keys); the boto3 paginator fetches further pages transparently.
+        Splitting more finely than "one prefix per year" would add
+        round-trips without reducing page count, so this doesn't bother.
 
         Returns
         -------
