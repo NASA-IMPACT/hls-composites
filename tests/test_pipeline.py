@@ -4,6 +4,7 @@ from datetime import date
 from pathlib import Path
 
 import boto3
+import dask
 import numpy as np
 import pytest
 import xarray as xr
@@ -35,6 +36,7 @@ def stages(monkeypatch, tmp_path):
         """Stands in for a lazy composite; compute() returns itself."""
 
         def compute(self):
+            captured["num_workers"] = dask.config.get("num_workers", None)
             return self
 
         def __getitem__(self, name):
@@ -65,6 +67,8 @@ def stages(monkeypatch, tmp_path):
         pipeline, "write_browse_images", lambda computed, granule_dir: []
     )
     monkeypatch.setattr(pipeline, "write_manifest", lambda *a, **k: None)
+    # The host running the tests may itself sit in a memory-limited cgroup.
+    monkeypatch.setattr(pipeline, "container_memory_limit", lambda: None)
     # No boto3 stub: discovery and upload are faked, so the clients the
     # pipeline builds are never used to make a request.
     return captured
@@ -155,6 +159,51 @@ class TestS3Destination:
 
         work_dir = stages["write"]["dest"].parent
         assert not work_dir.exists()
+
+
+class TestDaskThreads:
+    def granules(self, n):
+        return [Granule(f"s3://b/g{i}", "L30", date(2015, 7, 10)) for i in range(n)]
+
+    def test_no_memory_limit_keeps_the_configured_threads(self, stages, tmp_path):
+        with dask.config.set(num_workers=4):
+            run(LocalDestination(tmp_path))
+
+        assert stages["num_workers"] == 4
+
+    def test_small_stack_keeps_the_configured_threads(
+        self, stages, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(pipeline, "container_memory_limit", lambda: 3600 * 2**20)
+        stages["granules"] = self.granules(30)
+
+        with dask.config.set(num_workers=4):
+            run(LocalDestination(tmp_path))
+
+        assert stages["num_workers"] == 4
+
+    def test_large_stack_reduces_threads(self, stages, monkeypatch, tmp_path):
+        monkeypatch.setattr(pipeline, "container_memory_limit", lambda: 3600 * 2**20)
+        stages["granules"] = self.granules(183)
+        messages: list[str] = []
+
+        with dask.config.set(num_workers=4):
+            run(LocalDestination(tmp_path), on_progress=messages.append)
+
+        assert stages["num_workers"] == 1
+        assert any("with 1 dask threads" in m for m in messages)
+
+    def test_warns_when_one_thread_is_estimated_not_to_fit(
+        self, stages, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(pipeline, "container_memory_limit", lambda: 3600 * 2**20)
+        stages["granules"] = self.granules(400)
+        messages: list[str] = []
+
+        run(LocalDestination(tmp_path), on_progress=messages.append)
+
+        assert stages["num_workers"] == 1
+        assert any("exceeds the 3600 MiB limit" in m for m in messages)
 
 
 class TestNoGranules:

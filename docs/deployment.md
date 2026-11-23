@@ -102,7 +102,7 @@ The job definition sets:
 | `HLS_BUCKET`             | Input bucket the CLI scans for granules. Already read by `hls_composites`.                            |
 | `LPDAAC_READER_ROLE_ARN` | Role to assume for LP DAAC reads.                                                                     |
 | `PYTHONUNBUFFERED`       | Keeps logs flowing to CloudWatch.                                                                     |
-| `DASK_NUM_WORKERS`       | Dask threads per job, from `PROCESSING_JOB_DASK_NUM_WORKERS`. Omitted when unset (one per host core). |
+| `DASK_NUM_WORKERS`       | Upper bound on dask threads per job, from `PROCESSING_JOB_DASK_NUM_WORKERS`. Omitted when unset (one per host core). Each job lowers it when its granule count would not fit the container's memory limit (see `src/hls_composites/resources.py`). |
 
 Each composite directory also carries `{granule_id}.cmr.xml` (ECHO-10 granule metadata for CMR) and
 `{granule_id}_stac.json` (a STAC item). Both are written from one model, so they cannot disagree. The collection-level
