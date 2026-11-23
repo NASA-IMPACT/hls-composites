@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import boto3
+import dask
 
 from hls_composites.aws import (
     assumed_role_env,
@@ -33,6 +34,13 @@ from hls_composites.metadata.manifest import write_manifest
 from hls_composites.metadata.models import COMPOSITING_ALGORITHM
 from hls_composites.metadata.writer import write_metadata
 from hls_composites.models import DateRange, composite_id
+from hls_composites.resources import (
+    BASELINE_BYTES,
+    block_bytes,
+    container_memory_limit,
+    default_max_workers,
+    workers_for,
+)
 
 ProgressCallback = Callable[[str], None]
 
@@ -144,12 +152,22 @@ def create_composite(
             # the run while it is still cheap to.
             platforms = read_platforms(s3_client, granules)
 
+            memory_limit = container_memory_limit()
+            workers = workers_for(len(granules), memory_limit, default_max_workers())
             on_progress(
                 f"Compositing {output} from {len(granules)} granules "
-                f"for {tile_id} in {date_range}"
+                f"for {tile_id} in {date_range} with {workers} dask threads"
             )
+            if memory_limit is not None and (
+                BASELINE_BYTES + block_bytes(len(granules)) > memory_limit
+            ):
+                on_progress(
+                    f"Estimated peak memory exceeds the {memory_limit // 2**20} MiB "
+                    "limit even with one dask thread"
+                )
             composite = build_composite(granules, output=output)
-            computed = composite.compute()
+            with dask.config.set(num_workers=workers):
+                computed = composite.compute()
             dest = work_dir / granule_id
             rasters = write_rasters(
                 computed,
