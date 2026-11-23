@@ -95,11 +95,10 @@ class DateRange:
 
         One ``YYYY`` prefix per calendar year touched by the range.
         A tile can see several acquisitions per day per satellite where
-        adjacent orbital paths overlap (common at high latitudes), so a
-        year's listing may exceed one ``list_objects_v2`` page (max 1000
-        keys); the boto3 paginator fetches further pages transparently.
-        Splitting more finely than "one prefix per year" would add
-        round-trips without reducing page count, so this doesn't bother.
+        adjacent orbital paths overlap (common at high latitudes), but
+        list_objects_v2 pagination handles this. Splitting more finely than
+        "one prefix per year" would add round-trips without reducing page
+        count, so this doesn't bother.
 
         Returns
         -------
